@@ -1,4 +1,4 @@
-name: Build RPM from manifest
+name: RPM manifest build and publish
 
 on:
   pull_request:
