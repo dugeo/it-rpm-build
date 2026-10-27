@@ -1,0 +1,5 @@
+results/
+input/
+package/
+*.src.rpm
+*.rpm

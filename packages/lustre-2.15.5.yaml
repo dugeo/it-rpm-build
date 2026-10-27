@@ -1,0 +1,15 @@
+# Example SRPM import record
+# Dispatch this through Actions > RPM SRPM import and mock build.
+
+package: lustre
+repository: lustre
+source:
+  url: https://downloads.whamcloud.com/public/lustre/lustre-2.15.5/el9.4/client/SRPMS/lustre-2.15.5-1.src.rpm
+  sha256: 05cb2ba1e5576ae178954add58464f7ed855feb89da7396faab987315d27cc73
+cgit:
+  repository: lustre
+build:
+  mock_config: mock.cfg
+  script: build.sh
+nexus:
+  repository_url: https://nexus.kube.dug.com/repository/rpm-hosted

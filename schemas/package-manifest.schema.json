@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["package", "source", "build", "publish"],
+  "properties": {
+    "package": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "source": {
+      "type": "object",
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": {"type": "string", "format": "uri"},
+        "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "build": {"type": "object", "required": ["template"], "properties": {"template": {"type": "string"}}, "additionalProperties": true},
+    "publish": {"type": "object", "required": ["nexus_repository"], "properties": {"nexus_repository": {"type": "string"}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}
