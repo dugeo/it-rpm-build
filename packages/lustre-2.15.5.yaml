@@ -1,5 +1,6 @@
 # Example SRPM import record
 # A merged manifest is the input to the reusable RPM build workflow.
+# CI trigger probe: the source digest remains unchanged.
 
 package: lustre
 repository: lustre
