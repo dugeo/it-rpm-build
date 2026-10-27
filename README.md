@@ -53,4 +53,6 @@ For every manifest the runner must:
 8. upload RPMs and the SRPM to Nexus;
 9. publish build logs and metadata as workflow artifacts.
 
-Generated build files should not be committed back to this repository by CI.
+The workflow stores the original verified SRPM under `SOURCES/` in the cgit
+repository before committing the imported dist-git state. Nexus remains the
+artifact publication destination for build outputs.

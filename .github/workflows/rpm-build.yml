@@ -1,0 +1,126 @@
+name: Build RPM from manifest
+
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'templates/**'
+      - 'scripts/**'
+      - 'Containerfile'
+      - '.github/workflows/rpm-build.yml'
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: Manifest path under packages/
+        required: true
+        default: packages/lustre-2.15.5.yaml
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'templates/**'
+      - 'scripts/**'
+      - 'Containerfile'
+      - '.github/workflows/rpm-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: k8s-runners
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifests
+        run: |
+          pip install --disable-pip-version-check --no-cache-dir pyyaml
+          for manifest in packages/*.yaml; do
+            python scripts/read-manifest.py "$manifest" >/dev/null
+          done
+
+  build:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: k8s-runners
+    timeout-minutes: 120
+    env:
+      MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
+      CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:22
+      NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read manifest
+        id: manifest
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace --env MANIFEST python:3.12-slim bash -c \
+            'pip install --disable-pip-version-check --no-cache-dir pyyaml >/dev/null && python scripts/read-manifest.py "$MANIFEST"' \
+            > "$RUNNER_TEMP/manifest.env"
+          cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
+
+      - name: Build RPM tool image
+        run: docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
+
+      - name: Import, build, verify, and publish
+        env:
+          CGIT_SSH_PRIVATE_KEY: ${{ secrets.CGIT_SSH_PRIVATE_KEY }}
+          CGIT_KNOWN_HOSTS: ${{ secrets.CGIT_KNOWN_HOSTS }}
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$CGIT_SSH_PRIVATE_KEY"
+          test -n "$CGIT_KNOWN_HOSTS"
+          test -n "$NEXUS_USERNAME"
+          test -n "$NEXUS_PASSWORD"
+          install -d -m 0700 "$RUNNER_TEMP/rpm-ssh"
+          printf '%s\n' "$CGIT_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/rpm-ssh/id_ed25519"
+          printf '%s\n' "$CGIT_KNOWN_HOSTS" > "$RUNNER_TEMP/rpm-ssh/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/rpm-ssh"/*
+          docker run --rm --privileged \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume "$RUNNER_TEMP/rpm-ssh:/run/rpm-ssh:ro" \
+            --workdir /workspace \
+            --env PACKAGE --env REPOSITORY --env SRPM_URL --env SRPM_SHA256 \
+            --env BUILD_TEMPLATE --env MOCK_CONFIG --env BUILD_SCRIPT \
+            --env NEXUS_REPOSITORY --env NEXUS_BASE_URL --env CGIT_REMOTE_BASE \
+            --env NEXUS_USERNAME --env NEXUS_PASSWORD \
+            rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
+              install -d -m 0700 /root/.ssh /workspace/results
+              cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
+              cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
+              chmod 0600 /root/.ssh/*
+              printf "%s\\n" "Host cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
+              chmod 0600 /root/.ssh/config
+              mkdir -p /workspace/input
+              curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
+              printf "%s  %s\\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
+              rm -rf /workspace/package
+              git clone "$CGIT_REMOTE_BASE/$REPOSITORY.git" /workspace/package
+              cd /workspace/package
+              test -f "$BUILD_SCRIPT" && test -f "$MOCK_CONFIG"
+              rpkg import /workspace/input/source.src.rpm
+              mkdir -p SOURCES
+              cp /workspace/input/source.src.rpm "SOURCES/$(basename /workspace/input/source.src.rpm)"
+              git config user.name "RPM CI Import"
+              git config user.email "rpm-ci@kube.dug.com"
+              git add -A
+              git commit -m "Import $(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}" /workspace/input/source.src.rpm)" || true
+              git push origin HEAD
+              chmod +x "$BUILD_SCRIPT"
+              ./$BUILD_SCRIPT --arch x86_64
+              find /workspace/package -type f -name "*.rpm" -print -exec rpm -K {} \; | tee /workspace/results/rpm-verification.txt
+              find /workspace/package -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
+                curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
+              done
+            '
+
+      - name: Upload build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-build-results
+          path: results/
+          if-no-files-found: ignore
