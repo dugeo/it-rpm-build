@@ -3,3 +3,4 @@ input/
 package/
 *.src.rpm
 *.rpm
+__pycache__/
