@@ -66,17 +66,20 @@ jobs:
       - name: Import, build, verify, and publish
         env:
           CGIT_SSH_PRIVATE_KEY: ${{ secrets.CGIT_SSH_PRIVATE_KEY }}
+          CGIT_REPO_ADMIN_PRIVATE_KEY: ${{ secrets.CGIT_REPO_ADMIN_PRIVATE_KEY }}
           CGIT_KNOWN_HOSTS: ${{ secrets.CGIT_KNOWN_HOSTS }}
           NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$CGIT_SSH_PRIVATE_KEY"
+          test -n "$CGIT_REPO_ADMIN_PRIVATE_KEY"
           test -n "$CGIT_KNOWN_HOSTS"
           test -n "$NEXUS_USERNAME"
           test -n "$NEXUS_PASSWORD"
           install -d -m 0700 "$RUNNER_TEMP/rpm-ssh"
           printf '%s\n' "$CGIT_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/rpm-ssh/id_ed25519"
+          printf '%s\n' "$CGIT_REPO_ADMIN_PRIVATE_KEY" > "$RUNNER_TEMP/rpm-ssh/repo-admin"
           printf '%s\n' "$CGIT_KNOWN_HOSTS" > "$RUNNER_TEMP/rpm-ssh/known_hosts"
           chmod 0600 "$RUNNER_TEMP/rpm-ssh"/*
           docker run --rm --privileged \
@@ -90,6 +93,7 @@ jobs:
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
               install -d -m 0700 /root/.ssh /workspace/results
               cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
+              cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
               chmod 0600 /root/.ssh/*
               printf "%s\\n" "Host cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
@@ -98,6 +102,9 @@ jobs:
               curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
               printf "%s  %s\\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
               rm -rf /workspace/package
+              if ! git ls-remote "$CGIT_REMOTE_BASE/$REPOSITORY.git" HEAD >/dev/null 2>&1; then
+                ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.kube.dug.com "newrepo $REPOSITORY"
+              fi
               git clone "$CGIT_REMOTE_BASE/$REPOSITORY.git" /workspace/package
               cd /workspace/package
               test -f "$BUILD_SCRIPT" && test -f "$MOCK_CONFIG"

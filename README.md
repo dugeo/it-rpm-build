@@ -29,8 +29,9 @@ Containerfile             Runner-side RPM tool image
 Configure these in the `rpm-build` GitHub repository:
 
 ```text
-CGIT_SSH_PRIVATE_KEY
-CGIT_KNOWN_HOSTS
+CGIT_SSH_PRIVATE_KEY          key allowed to clone/push package repositories
+CGIT_REPO_ADMIN_PRIVATE_KEY   restricted key allowed only to run newrepo
+CGIT_KNOWN_HOSTS              pinned known_hosts entry for cgit.kube.dug.com
 NEXUS_USERNAME
 NEXUS_PASSWORD
 ```
