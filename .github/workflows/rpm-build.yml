@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: k8s-runners
+    runs-on: rpm-build-runners
     container: python:3.12-slim
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +43,7 @@ jobs:
   build:
     if: github.event_name != 'pull_request'
     needs: validate
-    runs-on: k8s-runners
+    runs-on: rpm-build-runners
     timeout-minutes: 120
     env:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
