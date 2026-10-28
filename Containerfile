@@ -2,11 +2,11 @@ FROM quay.io/centos/centos:stream9
 
 ARG RPM_REPOSITORY_URL
 
-RUN --mount=type=secret,id=nexus_username --mount=type=secret,id=nexus_password \
+RUN --mount=type=secret,id=legacy_nexus_username --mount=type=secret,id=legacy_nexus_password \
     set -eux; \
     test -n "$RPM_REPOSITORY_URL"; \
     printf '[legacy]\nname=legacy\nbaseurl=%s\nenabled=1\ngpgcheck=0\n' "$RPM_REPOSITORY_URL" > /etc/yum.repos.d/legacy.repo; \
-    printf 'username=%s\npassword=%s\n' "$(cat /run/secrets/nexus_username)" "$(cat /run/secrets/nexus_password)" >> /etc/yum.repos.d/legacy.repo; \
+    printf 'username=%s\npassword=%s\n' "$(cat /run/secrets/legacy_nexus_username)" "$(cat /run/secrets/legacy_nexus_password)" >> /etc/yum.repos.d/legacy.repo; \
     install_retry() { \
       for attempt in 1 2 3 4 5; do \
         dnf clean all; \

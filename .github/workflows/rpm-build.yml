@@ -59,8 +59,8 @@ jobs:
       CGIT_REMOTE_BASE: ssh://git@cgit.devops.svc.cluster.local:22
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       GITHUB_TOKEN: ${{ github.token }}
-      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
-      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
+      LEGACY_NEXUS_PASSWORD: ${{ secrets.LEGACY_NEXUS_PASSWORD }}
     steps:
       - name: Fetch repository
         run: |
@@ -83,8 +83,8 @@ jobs:
         run: |
           docker build \
             --build-arg RPM_REPOSITORY_URL="$RPM_REPOSITORY_URL" \
-            --secret id=nexus_username,env=NEXUS_USERNAME \
-            --secret id=nexus_password,env=NEXUS_PASSWORD \
+            --secret id=legacy_nexus_username,env=LEGACY_NEXUS_USERNAME \
+            --secret id=legacy_nexus_password,env=LEGACY_NEXUS_PASSWORD \
             --file Containerfile \
             --tag rpm-build:${GITHUB_SHA} .
 
@@ -114,6 +114,7 @@ jobs:
             --env PACKAGE --env REPOSITORY --env SRPM_URL --env SRPM_SHA256 \
             --env BUILD_TEMPLATE --env MOCK_CONFIG --env BUILD_SCRIPT --env KERNEL_VERSION --env RPM_REPOSITORY_URL \
             --env NEXUS_REPOSITORY --env NEXUS_BASE_URL --env CGIT_REMOTE_BASE \
+            --env LEGACY_NEXUS_USERNAME --env LEGACY_NEXUS_PASSWORD \
             --env NEXUS_USERNAME --env NEXUS_PASSWORD \
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
               install -d -m 0700 /root/.ssh /workspace/results
@@ -128,7 +129,7 @@ jobs:
               printf "%s  %s\\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
               rm -rf /workspace/package
               if ! git ls-remote "$CGIT_REMOTE_BASE/$REPOSITORY.git" HEAD >/dev/null 2>&1; then
-                ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.kube.dug.com "newrepo $REPOSITORY"
+                ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.devops.svc.cluster.local "newrepo $REPOSITORY"
               fi
               git clone "$CGIT_REMOTE_BASE/$REPOSITORY.git" /workspace/package
               cd /workspace/package

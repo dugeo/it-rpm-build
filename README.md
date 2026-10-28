@@ -32,8 +32,10 @@ Configure these in the `rpm-build` GitHub repository:
 CGIT_SSH_PRIVATE_KEY          key allowed to clone/push package repositories
 CGIT_REPO_ADMIN_PRIVATE_KEY   restricted key allowed only to run newrepo
 CGIT_KNOWN_HOSTS              pinned known_hosts entry for cgit.kube.dug.com
-NEXUS_USERNAME
-NEXUS_PASSWORD
+NEXUS_USERNAME                 publication Nexus username
+NEXUS_PASSWORD                 publication Nexus password
+LEGACY_NEXUS_USERNAME          legacy dependency Nexus username
+LEGACY_NEXUS_PASSWORD          legacy dependency Nexus password
 ```
 
 The build dependency repository is the legacy DUG EL repository at
