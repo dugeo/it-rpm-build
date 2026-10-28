@@ -30,7 +30,6 @@ permissions:
 jobs:
   validate:
     runs-on: rpm-build-runners
-    container: python:3.12-slim
     steps:
       - uses: actions/checkout@v4
       - name: Validate manifests
