@@ -119,11 +119,24 @@ jobs:
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
               chmod 0600 /root/.ssh/*
-              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/dev/null | grep -v '^#' | head -n1)
-              test -n "$internal_key"
+              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/tmp/cgit-keyscan.err | grep -v '^#' | head -n1)
+              if test -z "$internal_key"; then
+                echo 'cgit host-key scan returned no key'
+                cat /tmp/cgit-keyscan.err >&2 || true
+                exit 1
+              fi
               read -r _ key_type key_blob _ <<< "$internal_key"
+              if test -z "$key_type" || test -z "$key_blob"; then
+                echo 'cgit host-key scan returned an unexpected format'
+                exit 1
+              fi
               printf '%s %s\n' "$key_type" "$key_blob" > /tmp/cgit-host-key
-              test "$(ssh-keygen -lf /tmp/cgit-host-key -E sha256 | awk "{print \$2}")" = 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'
+              actual_fingerprint=$(ssh-keygen -lf /tmp/cgit-host-key -E sha256 | awk "{print \$2}")
+              echo "cgit scanned host-key fingerprint: $actual_fingerprint"
+              if test "$actual_fingerprint" != 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'; then
+                echo 'cgit host-key fingerprint mismatch'
+                exit 1
+              fi
               printf '%s\n' "$internal_key" >> /root/.ssh/known_hosts
               printf "%s\n" "Host cgit.devops.svc.cluster.local" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
               chmod 0600 /root/.ssh/config
