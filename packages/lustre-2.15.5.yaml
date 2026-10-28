@@ -9,6 +9,7 @@ source:
   sha256: 05cb2ba1e5576ae178954add58464f7ed855feb89da7396faab987315d27cc73
 build:
   template: el9
+  kernel: 5.14.0-570.26.1.2.dug.el9
   mock_config: mock.cfg
   script: build.sh
 publish:

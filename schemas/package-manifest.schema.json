@@ -14,7 +14,7 @@
       },
       "additionalProperties": false
     },
-    "build": {"type": "object", "required": ["template"], "properties": {"template": {"type": "string"}}, "additionalProperties": true},
+    "build": {"type": "object", "required": ["template"], "properties": {"template": {"type": "string"}, "kernel": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"}}, "additionalProperties": true},
     "publish": {"type": "object", "required": ["nexus_repository"], "properties": {"nexus_repository": {"type": "string"}}, "additionalProperties": false}
   },
   "additionalProperties": false

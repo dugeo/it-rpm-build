@@ -54,6 +54,7 @@ output = {
     "BUILD_TEMPLATE": values["build.template"],
     "MOCK_CONFIG": values.get("build.mock_config", "mock.cfg"),
     "BUILD_SCRIPT": values.get("build.script", "build.sh"),
+    "KERNEL_VERSION": values.get("build.kernel", ""),
     "NEXUS_REPOSITORY": values["publish.nexus_repository"],
 }
 for key, value in output.items():
