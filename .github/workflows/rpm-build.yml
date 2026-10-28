@@ -83,7 +83,7 @@ jobs:
             --volume "$RUNNER_TEMP/rpm-ssh:/run/rpm-ssh:ro" \
             --workdir /workspace \
             --env PACKAGE --env REPOSITORY --env SRPM_URL --env SRPM_SHA256 \
-            --env BUILD_TEMPLATE --env MOCK_CONFIG --env BUILD_SCRIPT --env KERNEL_VERSION \
+            --env BUILD_TEMPLATE --env MOCK_CONFIG --env BUILD_SCRIPT --env KERNEL_VERSION --env RPM_REPOSITORY_URL \
             --env NEXUS_REPOSITORY --env NEXUS_BASE_URL --env CGIT_REMOTE_BASE \
             --env NEXUS_USERNAME --env NEXUS_PASSWORD \
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '

@@ -55,6 +55,7 @@ output = {
     "MOCK_CONFIG": values.get("build.mock_config", "mock.cfg"),
     "BUILD_SCRIPT": values.get("build.script", "build.sh"),
     "KERNEL_VERSION": values.get("build.kernel", ""),
+    "RPM_REPOSITORY_URL": values.get("build.rpm_repository_url", "https://nexus.dug.com/repository/dug-el/9/dug/x86_64/"),
     "NEXUS_REPOSITORY": values["publish.nexus_repository"],
 }
 for key, value in output.items():

@@ -10,6 +10,7 @@ source:
 build:
   template: el9
   kernel: 5.14.0-570.26.1.2.dug.el9
+  rpm_repository_url: https://nexus.dug.com/repository/dug-el/9/dug/x86_64/
   mock_config: mock.cfg
   script: build.sh
 publish:

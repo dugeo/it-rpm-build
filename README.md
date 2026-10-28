@@ -36,6 +36,11 @@ NEXUS_USERNAME
 NEXUS_PASSWORD
 ```
 
+The build dependency repository is the legacy DUG EL repository at
+`https://nexus.dug.com/repository/dug-el/9/dug/x86_64/`; credentials are supplied
+only through the existing GitHub Actions secrets. Build publication remains on
+`https://nexus.kube.dug.com/repository/rpm-hosted`.
+
 The workflow uses the `rpm-build-runners` ARC label and performs the full
 sequence without Kubernetes administrator credentials:
 
