@@ -35,7 +35,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate manifests
         run: |
-          pip install --disable-pip-version-check --no-cache-dir pyyaml
           for manifest in packages/*.yaml; do
             python scripts/read-manifest.py "$manifest" >/dev/null
           done
@@ -55,9 +54,7 @@ jobs:
       - name: Read manifest
         id: manifest
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace --env MANIFEST python:3.12-slim bash -c \
-            'pip install --disable-pip-version-check --no-cache-dir pyyaml >/dev/null && python scripts/read-manifest.py "$MANIFEST"' \
-            > "$RUNNER_TEMP/manifest.env"
+          python3 scripts/read-manifest.py "$MANIFEST" > "$RUNNER_TEMP/manifest.env"
           cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
 
       - name: Build RPM tool image
