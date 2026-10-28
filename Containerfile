@@ -15,17 +15,17 @@ RUN set -eux; \
     dnf config-manager --set-enabled crb; \
     sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/centos.repo; \
     printf '%s\n' \
-      '[baseos]' \
+      '[fixed-baseos]' \
       'name=CentOS Stream 9 BaseOS' \
       'baseurl=https://mirror.stream.centos.org/9-stream/BaseOS/$basearch/os/' \
       'enabled=1' 'gpgcheck=1' \
       'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial' \
-      '[appstream]' \
+      '[fixed-appstream]' \
       'name=CentOS Stream 9 AppStream' \
       'baseurl=https://mirror.stream.centos.org/9-stream/AppStream/$basearch/os/' \
       'enabled=1' 'gpgcheck=1' \
       'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial' \
-      '[crb]' \
+      '[fixed-crb]' \
       'name=CentOS Stream 9 CRB' \
       'baseurl=https://mirror.stream.centos.org/9-stream/CRB/$basearch/os/' \
       'enabled=1' 'gpgcheck=1' \
