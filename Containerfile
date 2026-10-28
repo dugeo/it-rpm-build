@@ -10,15 +10,17 @@ RUN dnf install -y epel-release dnf-plugins-core \
         git \
         mock \
         openssh-clients \
+        python3-pip \
+        python3-rpm \
         rpm-build \
         rpmdevtools \
         rpmlint \
-        rpkg \
         tar \
         xz \
         yq \
         zstd \
     && dnf clean all \
-    && rm -rf /var/cache/dnf
+    && rm -rf /var/cache/dnf \
+    && python3 -m pip install --no-cache-dir rpkg==1.70
 
 WORKDIR /workspace
