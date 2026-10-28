@@ -5,6 +5,7 @@ RUN dnf install -y epel-release dnf-plugins-core \
     && dnf install -y \
         cpio \
         findutils \
+        gcc \
         git \
         mock \
         openssh-clients \
