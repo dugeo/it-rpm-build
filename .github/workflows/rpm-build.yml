@@ -119,9 +119,10 @@ jobs:
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
               chmod 0600 /root/.ssh/*
-              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/dev/null)
+              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/dev/null | awk '$1 !~ /^#/ {print; exit}')
               test -n "$internal_key"
-              test "$(printf '%s\\n' "$internal_key" | ssh-keygen -lf - -E sha256 | awk "{print \$2}")" = 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'
+              printf '%s\\n' "$internal_key" > /tmp/cgit-host-key
+              test "$(ssh-keygen -lf /tmp/cgit-host-key -E sha256 | awk "{print \$2}")" = 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'
               printf '%s\\n' "$internal_key" >> /root/.ssh/known_hosts
               printf "%s\\n" "Host cgit.devops.svc.cluster.local" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
               chmod 0600 /root/.ssh/config
