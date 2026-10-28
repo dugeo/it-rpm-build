@@ -54,6 +54,9 @@ RUN set -eux; \
         zstd; \
     dnf clean all; \
     rm -rf /var/cache/dnf; \
+    install -d -m 0755 /etc/rpkg; \
+    install -m 0644 /usr/share/rpkg/examples/cli/etc/rpkg/rpkg.conf /etc/rpkg/rpkg.conf; \
+    install -m 0755 /usr/share/rpkg/examples/cli/usr/bin/rpkg /usr/bin/rpkg; \
     sed -i '1s|^#!.*|#!/usr/bin/env python3|' /usr/bin/rpkg
 
 WORKDIR /workspace
