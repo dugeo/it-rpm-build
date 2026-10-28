@@ -4,7 +4,6 @@ RUN dnf install -y epel-release dnf-plugins-core \
     && dnf config-manager --set-enabled crb \
     && dnf install -y \
         cpio \
-        coreutils \
         findutils \
         git \
         mock \
