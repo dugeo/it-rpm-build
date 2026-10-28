@@ -153,7 +153,7 @@ jobs:
               fi
               git clone "$CGIT_REMOTE_BASE$REPOSITORY.git" /workspace/package
               cd /workspace/package
-              rpkg import /workspace/input/source.src.rpm
+              rpkg import --do-not-check-specfile-name /workspace/input/source.src.rpm
               mkdir -p SOURCES
               cp /workspace/input/source.src.rpm "SOURCES/$(basename /workspace/input/source.src.rpm)"
               git config user.name "RPM CI Import"
