@@ -30,8 +30,19 @@ permissions:
 jobs:
   validate:
     runs-on: rpm-build-runners
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Fetch repository
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/repository.tar.gz"
+          tar -xzf "$RUNNER_TEMP/repository.tar.gz" \
+            --strip-components=1 --directory "$GITHUB_WORKSPACE"
       - name: Validate manifests
         run: |
           for manifest in packages/*.yaml; do
@@ -47,8 +58,18 @@ jobs:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
       CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:22
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Fetch repository
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/repository.tar.gz"
+          tar -xzf "$RUNNER_TEMP/repository.tar.gz" \
+            --strip-components=1 --directory "$GITHUB_WORKSPACE"
 
       - name: Read manifest
         id: manifest
@@ -129,11 +150,3 @@ jobs:
                 curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
               done
             '
-
-      - name: Upload build results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rpm-build-results
-          path: results/
-          if-no-files-found: ignore
