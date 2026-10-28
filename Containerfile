@@ -7,6 +7,7 @@ RUN dnf install -y epel-release dnf-plugins-core \
         findutils \
         gcc \
         git \
+        krb5-devel \
         mock \
         openssh-clients \
         python3-pip \
