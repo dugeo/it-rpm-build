@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 120
     env:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
-      CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:22
+      CGIT_REMOTE_BASE: ssh://git@cgit.devops.svc.cluster.local:22
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       GITHUB_TOKEN: ${{ github.token }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
@@ -121,7 +121,7 @@ jobs:
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
               chmod 0600 /root/.ssh/*
-              printf "%s\\n" "Host cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
+              printf "%s\\n" "Host cgit.kube.dug.com cgit.devops.svc.cluster.local" "  HostKeyAlias cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
               chmod 0600 /root/.ssh/config
               mkdir -p /workspace/input
               curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
