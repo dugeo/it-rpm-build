@@ -14,7 +14,7 @@ RUN set -eux; \
     install_retry epel-release dnf-plugins-core; \
     dnf config-manager --set-enabled crb; \
     sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/centos.repo; \
-    printf '%s\\n' \
+    printf '%s\n' \
       '[baseos]' \
       'name=CentOS Stream 9 BaseOS' \
       'baseurl=https://mirror.stream.centos.org/9-stream/BaseOS/$basearch/os/' \
