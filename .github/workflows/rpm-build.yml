@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 120
     env:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
-      CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:22
+      CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:30222
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
     steps:
       - uses: actions/checkout@v4
