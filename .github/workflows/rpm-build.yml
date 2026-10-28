@@ -81,12 +81,7 @@ jobs:
 
       - name: Build RPM tool image
         run: |
-          docker build \
-            --build-arg RPM_REPOSITORY_URL="$RPM_REPOSITORY_URL" \
-            --secret id=legacy_nexus_username,env=LEGACY_NEXUS_USERNAME \
-            --secret id=legacy_nexus_password,env=LEGACY_NEXUS_PASSWORD \
-            --file Containerfile \
-            --tag rpm-build:${GITHUB_SHA} .
+          docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
 
       - name: Import, build, verify, and publish
         env:
@@ -124,6 +119,8 @@ jobs:
               chmod 0600 /root/.ssh/*
               printf "%s\\n" "Host cgit.kube.dug.com cgit.devops.svc.cluster.local" "  HostKeyAlias cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
               chmod 0600 /root/.ssh/config
+              install -d -m 0755 /etc/yum.repos.d
+              printf "[legacy]\\nname=legacy DUG EL\\nbaseurl=%s\\nenabled=1\\ngpgcheck=0\\nusername=%s\\npassword=%s\\n" "$RPM_REPOSITORY_URL" "$LEGACY_NEXUS_USERNAME" "$LEGACY_NEXUS_PASSWORD" > /etc/yum.repos.d/legacy.repo
               mkdir -p /workspace/input
               curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
               printf "%s  %s\\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
