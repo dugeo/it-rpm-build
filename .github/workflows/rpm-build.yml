@@ -121,7 +121,7 @@ jobs:
               chmod 0600 /root/.ssh/*
               internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/dev/null | grep -v '^#' | head -n1)
               test -n "$internal_key"
-              key_material=${internal_key#* }
+              key_material=${internal_key#*$'\t'}
               printf '%s\n' "$key_material" > /tmp/cgit-host-key
               test "$(ssh-keygen -lf /tmp/cgit-host-key -E sha256 | awk "{print \$2}")" = 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'
               printf '%s\n' "$internal_key" >> /root/.ssh/known_hosts
