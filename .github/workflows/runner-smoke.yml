@@ -1,0 +1,26 @@
+name: RPM runner smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/runner-smoke.yml
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: rpm-build-runners
+    timeout-minutes: 10
+    steps:
+      - name: Verify runner shell
+        run: |
+          set -euo pipefail
+          printf 'runner=%s\n' "$(hostname)"
+          python3 --version
+          test -n "${RUNNER_NAME:-}"
+      - name: Verify Docker-in-Docker
+        run: |
+          set -euo pipefail
+          docker version
+          docker info >/dev/null
