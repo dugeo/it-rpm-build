@@ -19,6 +19,7 @@ RUN dnf install -y epel-release dnf-plugins-core \
         zstd \
     && dnf clean all \
     && rm -rf /var/cache/dnf \
-    && python3 -m pip install --no-cache-dir rpkg==1.70
+    && python3 -m pip install --no-cache-dir --timeout 60 --retries 10 --only-binary=:all: requests-gssapi==1.4.0 \
+    && python3 -m pip install --no-cache-dir --timeout 60 --retries 10 rpkg==1.70
 
 WORKDIR /workspace
