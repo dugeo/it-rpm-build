@@ -117,7 +117,11 @@ jobs:
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
               chmod 0600 /root/.ssh/*
-              printf "%s\\n" "Host cgit.kube.dug.com cgit.devops.svc.cluster.local" "  HostKeyAlias cgit.kube.dug.com" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
+              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/dev/null)
+              test -n "$internal_key"
+              test "$(printf '%s\\n' "$internal_key" | ssh-keygen -lf - -E sha256 | awk '{print $2}')" = 'SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU'
+              printf '%s\\n' "$internal_key" >> /root/.ssh/known_hosts
+              printf "%s\\n" "Host cgit.devops.svc.cluster.local" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
               chmod 0600 /root/.ssh/config
               install -d -m 0755 /etc/yum.repos.d
               printf "[legacy]\\nname=legacy DUG EL\\nbaseurl=%s\\nenabled=1\\ngpgcheck=0\\nusername=%s\\npassword=%s\\n" "$RPM_REPOSITORY_URL" "$LEGACY_NEXUS_USERNAME" "$LEGACY_NEXUS_PASSWORD" > /etc/yum.repos.d/legacy.repo
