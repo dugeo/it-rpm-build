@@ -13,6 +13,24 @@ RUN set -eux; \
     }; \
     install_retry epel-release dnf-plugins-core; \
     dnf config-manager --set-enabled crb; \
+    sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/centos.repo; \
+    printf '%s\\n' \
+      '[baseos]' \
+      'name=CentOS Stream 9 BaseOS' \
+      'baseurl=https://mirror.stream.centos.org/9-stream/BaseOS/$basearch/os/' \
+      'enabled=1' 'gpgcheck=1' \
+      'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial' \
+      '[appstream]' \
+      'name=CentOS Stream 9 AppStream' \
+      'baseurl=https://mirror.stream.centos.org/9-stream/AppStream/$basearch/os/' \
+      'enabled=1' 'gpgcheck=1' \
+      'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial' \
+      '[crb]' \
+      'name=CentOS Stream 9 CRB' \
+      'baseurl=https://mirror.stream.centos.org/9-stream/CRB/$basearch/os/' \
+      'enabled=1' 'gpgcheck=1' \
+      'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial' \
+      > /etc/yum.repos.d/centos-fixed.repo; \
     install_retry \
         cpio \
         findutils \
