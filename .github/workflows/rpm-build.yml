@@ -107,18 +107,28 @@ jobs:
               fi
               git clone "$CGIT_REMOTE_BASE/$REPOSITORY.git" /workspace/package
               cd /workspace/package
-              test -f "$BUILD_SCRIPT" && test -f "$MOCK_CONFIG"
               rpkg import /workspace/input/source.src.rpm
               mkdir -p SOURCES
               cp /workspace/input/source.src.rpm "SOURCES/$(basename /workspace/input/source.src.rpm)"
               git config user.name "RPM CI Import"
               git config user.email "rpm-ci@kube.dug.com"
+              git diff --check
               git add -A
               git commit -m "Import $(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}" /workspace/input/source.src.rpm)" || true
               git push origin HEAD
+
+              # Build inputs belong to the package's dist-git repository. Check
+              # them only after import so a newly created repository receives
+              # the verified SRPM even when its build contract is incomplete.
+              test -f "$BUILD_SCRIPT"
+              test -f "$MOCK_CONFIG"
               chmod +x "$BUILD_SCRIPT"
+              rpkg srpm --outdir /workspace/results/srpm
               ./$BUILD_SCRIPT --arch x86_64
               find /workspace/package -type f -name "*.rpm" -print -exec rpm -K {} \; | tee /workspace/results/rpm-verification.txt
+              find /workspace/results/srpm /workspace/package -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
+                curl --fail --upload-file "$srpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
+              done
               find /workspace/package -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
                 curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
               done

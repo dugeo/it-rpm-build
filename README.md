@@ -21,7 +21,7 @@ packages/                 Package manifests
 schemas/                  Manifest validation schemas
 templates/                Shared build and mock templates
 Containerfile             Runner-side RPM tool image
-.github/workflows/        Build workflow (to be connected to k8s-runners)
+.github/workflows/        Build workflow on `rpm-build-runners`
 ```
 
 ## Required CI secrets
@@ -36,8 +36,8 @@ NEXUS_USERNAME
 NEXUS_PASSWORD
 ```
 
-The workflow must use the existing `k8s-runners` ARC label. It must not require
-Kubernetes administrator credentials.
+The workflow uses the `rpm-build-runners` ARC label and performs the full
+sequence without Kubernetes administrator credentials:
 
 ## Build contract
 

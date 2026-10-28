@@ -16,6 +16,7 @@ RUN dnf install -y epel-release dnf-plugins-core \
         rpkg \
         tar \
         xz \
+        yq \
         zstd \
     && dnf clean all \
     && rm -rf /var/cache/dnf
