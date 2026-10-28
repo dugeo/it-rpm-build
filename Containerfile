@@ -12,6 +12,7 @@ RUN dnf install -y epel-release dnf-plugins-core \
         python3-pip \
         python3-rpm \
         python3-gssapi \
+        python3-devel \
         rpm-build \
         rpmdevtools \
         rpmlint \
