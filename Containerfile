@@ -43,6 +43,8 @@ RUN set -eux; \
         python3-rpm \
         python3-gssapi \
         python3-devel \
+        python3-rpkg \
+        rpkg-common \
         rpm-build \
         rpmdevtools \
         rpmlint \
@@ -52,7 +54,6 @@ RUN set -eux; \
         zstd; \
     dnf clean all; \
     rm -rf /var/cache/dnf; \
-    python3 -m pip install --no-cache-dir --timeout 60 --retries 10 --only-binary=:all: --no-deps requests-gssapi==1.4.0; \
-    python3 -m pip install --no-cache-dir --timeout 60 --retries 10 rpkg==1.70
+    sed -i '1s|^#!.*|#!/usr/bin/env python3|' /usr/bin/rpkg
 
 WORKDIR /workspace
