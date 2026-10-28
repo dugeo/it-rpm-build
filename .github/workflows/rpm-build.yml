@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 120
     env:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
-      CGIT_REMOTE_BASE: ssh://git@cgit.devops.svc.cluster.local:22
+      CGIT_REMOTE_BASE: "git@cgit.devops.svc.cluster.local:"
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       GITHUB_TOKEN: ${{ github.token }}
       LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
@@ -148,10 +148,10 @@ jobs:
               curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
               printf "%s  %s\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
               rm -rf /workspace/package
-              if ! git ls-remote "$CGIT_REMOTE_BASE/$REPOSITORY.git" HEAD >/dev/null 2>&1; then
+              if ! git ls-remote "$CGIT_REMOTE_BASE$REPOSITORY.git" HEAD >/dev/null 2>&1; then
                 ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.devops.svc.cluster.local "newrepo $REPOSITORY"
               fi
-              git clone "$CGIT_REMOTE_BASE/$REPOSITORY.git" /workspace/package
+              git clone "$CGIT_REMOTE_BASE$REPOSITORY.git" /workspace/package
               cd /workspace/package
               rpkg import /workspace/input/source.src.rpm
               mkdir -p SOURCES
