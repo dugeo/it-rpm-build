@@ -90,6 +90,8 @@ jobs:
           CGIT_KNOWN_HOSTS: ${{ secrets.CGIT_KNOWN_HOSTS }}
           NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
+          LEGACY_NEXUS_PASSWORD: ${{ secrets.LEGACY_NEXUS_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$CGIT_SSH_PRIVATE_KEY"
