@@ -135,7 +135,7 @@ jobs:
               actual_fingerprint=${fingerprint_line#* }
               actual_fingerprint=${actual_fingerprint%% *}
               echo "cgit scanned host-key fingerprint: $actual_fingerprint"
-              if test "$actual_fingerprint" != "SHA256:c7Vf/YCWp3JNsmpco54ackR37MZypn6d8HZ0+6qvGUU"; then
+              if test "$actual_fingerprint" != "SHA256:z/nAPjFPgGvgSgJ9jLWLh/YfDTW6zdXwIJNO750f8Lc"; then
                 echo "cgit host-key fingerprint mismatch"
                 exit 1
               fi
