@@ -59,6 +59,8 @@ jobs:
       CGIT_REMOTE_BASE: ssh://git@cgit.kube.dug.com:22
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       GITHUB_TOKEN: ${{ github.token }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
     steps:
       - name: Fetch repository
         run: |
@@ -78,7 +80,13 @@ jobs:
           cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
 
       - name: Build RPM tool image
-        run: docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
+        run: |
+          docker build \
+            --build-arg RPM_REPOSITORY_URL="$RPM_REPOSITORY_URL" \
+            --secret id=nexus_username,env=NEXUS_USERNAME \
+            --secret id=nexus_password,env=NEXUS_PASSWORD \
+            --file Containerfile \
+            --tag rpm-build:${GITHUB_SHA} .
 
       - name: Import, build, verify, and publish
         env:
