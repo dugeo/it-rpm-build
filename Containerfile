@@ -5,7 +5,6 @@ RUN dnf install -y epel-release dnf-plugins-core \
     && dnf install -y \
         cpio \
         coreutils \
-        curl \
         findutils \
         git \
         mock \
