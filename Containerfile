@@ -1,8 +1,19 @@
 FROM quay.io/centos/centos:stream9
 
-RUN dnf install -y epel-release dnf-plugins-core \
+RUN set -eux; \
+    install_retry() { \
+      for attempt in 1 2 3 4 5; do \
+        dnf clean all; \
+        if dnf install -y --refresh --setopt=retries=10 --setopt=timeout=60 "$@"; then \
+          return 0; \
+        fi; \
+        sleep $((attempt * 5)); \
+      done; \
+      return 1; \
+    }; \
+    install_retry epel-release dnf-plugins-core \
     && dnf config-manager --set-enabled crb \
-    && dnf install -y \
+    && install_retry \
         cpio \
         findutils \
         gcc \
