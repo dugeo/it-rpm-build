@@ -4,7 +4,7 @@ RUN set -eux; \
     install_retry() { \
       for attempt in 1 2 3 4 5; do \
         dnf clean all; \
-        if dnf install -y --refresh --setopt=retries=10 --setopt=timeout=60 "$@"; then \
+        if dnf install -y --refresh --setopt=retries=10 --setopt=timeout=60 --setopt=ip_resolve=4 "$@"; then \
           return 0; \
         fi; \
         sleep $((attempt * 5)); \
