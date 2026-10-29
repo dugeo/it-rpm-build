@@ -101,4 +101,19 @@ dump_mock_logs() {
 }
 trap dump_mock_logs EXIT
 
-mock "${mock_args[@]}" --rebuild "$srpm_file"
+mock "${mock_args[@]}" --init
+
+if [ -n "$kernel" ]; then
+  # kernel-devel installs headers under /usr/src/kernels/<kver>, but the
+  # /lib/modules/<kver>/{source,build} symlinks Lustre's configure expects
+  # (--with-linux / --with-linux-obj) are normally created by the running
+  # *kernel* package's %post, which mock's chroot never installs/runs.
+  # Create them explicitly so configure can find the kernel source tree.
+  mock "${mock_args[@]}" --chroot -- \
+    "install -d -m 0755 /lib/modules/${kernel}.${arch} && \
+     ln -sfn /usr/src/kernels/${kernel}.${arch} /lib/modules/${kernel}.${arch}/source && \
+     ln -sfn /usr/src/kernels/${kernel}.${arch} /lib/modules/${kernel}.${arch}/build && \
+     test -e /lib/modules/${kernel}.${arch}/source/Makefile"
+fi
+
+mock "${mock_args[@]}" --no-clean --rebuild "$srpm_file"
