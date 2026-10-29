@@ -1,12 +1,22 @@
-# RPM Build Control Repository
+# RPM & Netboot Image Build Control Repository
 
-This repository is the source of truth for repeatable SRPM imports, mock builds,
-and Nexus publication. It is intentionally separate from `dugeo/it-k8s`:
+This repository is the source of truth for two related, manifest-driven CI/CD
+pipelines that share the same philosophy — pin a source, let CI do the rest,
+never ssh in by hand:
 
-- this repository contains package manifests and build templates;
+1. **RPM pipeline**: SRPM import, mock builds, Nexus publication.
+2. **Netboot image pipeline**: runs a pinned `dugeo/ansible` playbook to
+   (re)build a bootable compute/desktop/storage image whenever the packages
+   it ships (e.g. a new Lustre build from the RPM pipeline above) change.
+
+It is intentionally separate from `dugeo/it-k8s`:
+
+- this repository contains package/image manifests and build templates;
 - `dugeo/it-k8s` contains cluster/GitOps configuration;
-- cgit contains generated dist-git package repositories;
-- Nexus contains SRPM/RPM artifacts.
+- cgit contains generated dist-git package repositories (RPM pipeline only);
+- Nexus contains SRPM/RPM artifacts;
+- `dugeo/ansible` contains the actual image-build playbooks and roles
+  (`roles/local/boot-image-9/*`) — this repo only pins a ref and triggers it.
 
 **See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the full pipeline
 flow, why it's built the way it is, and every related repository/system it
@@ -19,14 +29,27 @@ Copy a manifest under `packages/`, set the immutable SRPM URL and SHA-256,
 choose a build template, and open a pull request. A merged manifest change
 becomes the input to the RPM build workflow.
 
+## Add/rebuild a netboot image
+
+Copy a manifest under `images/`, point it at the `dugeo/ansible` commit SHA
+and playbook path to run, and open a pull request. A merged manifest change
+becomes the input to the image-build workflow, which runs
+`ansible-playbook` against the target host (currently `ppxe0001`, which
+builds and serves from the same box — no separate publish step needed yet).
+See `docs/ARCHITECTURE.md` for why this pipeline looks different from the
+RPM one, and what's still open (vault password, SSH key, restricted
+`dugeo/ansible` access, future in-cluster PXE serving + Nexus archival).
+
 ## Repository layout
 
 ```text
-packages/                 Package manifests
-schemas/                  Manifest validation schemas
-templates/                Shared build and mock templates
+packages/                 RPM package manifests
+images/                   Netboot image manifests
+schemas/                  Manifest validation schemas (both pipelines)
+templates/                Shared RPM build and mock templates
 Containerfile             Runner-side RPM tool image
-.github/workflows/        Build workflow on `rpm-build-runners`
+.github/workflows/        rpm-build.yml and image-build.yml, both on
+                          `rpm-build-runners`
 ```
 
 ## Required CI secrets
@@ -72,3 +95,20 @@ For every manifest the runner must:
 The workflow stores the original verified SRPM under `SOURCES/` in the cgit
 repository before committing the imported dist-git state. Nexus remains the
 artifact publication destination for build outputs.
+
+## Netboot image pipeline — status
+
+`image-build.yml` is scaffolded but **not yet runnable end to end**. It needs:
+
+```text
+ANSIBLE_CHECKOUT_TOKEN   read-only token/deploy key for dugeo/ansible
+                          (access is restricted, not covered by any
+                          existing secret in this repo)
+ANSIBLE_SSH_PRIVATE_KEY  key for ansible-playbook to reach the target host
+ANSIBLE_VAULT_PASSWORD   vault password for pwhash_root_compute etc.
+```
+
+None of these exist yet — deliberately deferred. See `docs/ARCHITECTURE.md`
+for the full reasoning (why `ppxe0001` needs no separate publish step today,
+what changes once an in-cluster PXE deployment exists, and the planned move
+of the LDAP password into SOPS).

@@ -142,14 +142,101 @@ least once:
     the pipeline against unchanged output can't fail because of that —
     `upload_if_absent()` checks the URL first, skips if it's already a 200.
 
+## netboot image pipeline (new, scaffolded, not wired up yet)
+
+same repo, same manifest-driven idea, but this one just triggers an existing
+`dugeo/ansible` playbook instead of running mock. reasoning for keeping it
+here instead of a new repo: it's the same lifecycle as the RPM pipeline —
+bump Lustre, rebuild the image that ships it. splitting them into two repos
+just means cross-referencing two CI systems for one change. they share
+nothing at execution time (no mock, no cgit, no rpkg) but share everything
+at the "why does this exist" level.
+
+```
+images/<name>.yaml
+  │
+  ▼
+validate job — schema check, same pattern as packages/
+  │
+  ▼
+build job, on rpm-build-runners:
+  1. checkout this repo (manifest)
+  2. checkout dugeo/ansible pinned to the manifest's ansible.ref
+  3. ansible-playbook <manifest's playbook> against target.host,
+     with --vault-password-file and an ssh key
+```
+
+that's it. no mock, no Nexus upload (yet), no cgit. the playbook
+(`roles/local/boot-image-9/{image-create,image-init,image-bundle}` in
+`dugeo/ansible`) already does everything: chroot build via systemd-nspawn on
+the target host, on that host's own ZFS pool, writing the final
+`image.tar.gz`/`vmlinuz`/`initrd.img` + a `current` symlink + `.image_version`
+timestamp file right there. since `ppxe0001` builds and serves from the same
+box today, there's nothing to "publish" — the artifact already lands where
+PXE reads it.
+
+### why this pipeline looks different from the RPM one
+
+- **no mock, no privileged container.** the actual heavy lifting
+  (`systemd-nspawn`, `zfs create`, `dnf install` in a chroot) all happens on
+  the target host over ssh, not in the runner's job container. the runner
+  just needs `ansible-playbook` + an ssh key + git, nothing privileged.
+
+- **rollback already exists, it's just not ZFS-based at the artifact
+  level.** the role's `zfs snapshot {{ osimage_pool }}@{{ image_date }}`
+  snapshots the raw chroot build dir, for cheaply resuming/retrying a build —
+  it's not what versions the shipped artifact. the shipped artifacts are
+  already timestamped (`image.tar.gz.<date>`, `vmlinuz.<date>`,
+  `initrd.img.<date>`) with a `current`-style symlink and a `.image_version`
+  file, both inside and outside the image. rollback today = point the
+  symlink at an older date. nothing new needed for that as long as
+  `ppxe0001` keeps doing the serving.
+
+- **three things are still open, deliberately not solved yet:**
+  1. `dugeo/ansible` access is restricted — the checkout step needs its own
+     token/deploy key (`ANSIBLE_CHECKOUT_TOKEN`), not whatever credential
+     this repo already uses for `dugeo/it-k8s` or cgit.
+  2. the ansible vault password (`ANSIBLE_VAULT_PASSWORD`) and an ssh key to
+     the target host (`ANSIBLE_SSH_PRIVATE_KEY`) aren't provisioned yet.
+     `set -euo pipefail` + explicit `test -n` checks in the workflow make
+     this fail loud instead of silently skipping, so it's obvious what's
+     missing instead of someone debugging a no-op run later.
+  3. the LDAP/root password (`pwhash_root_compute` in
+     `inventory/group_vars/all/vault_teamit.yml`, currently decrypted via
+     ansible-vault at playbook runtime) might move to SOPS eventually, to
+     line up with how `dugeo/it-k8s` already manages secrets. not scoped
+     yet — vault-based decryption keeps working as-is until this is
+     revisited.
+
+- **not targeting `ppxe0001` specifically by design.** the manifest's
+  `target.host` is just a value, not a hardcoded assumption — if the build
+  moves off `ppxe0001` (e.g. a dedicated build host, or eventually an
+  in-cluster PXE deployment in `dugeo/it-k8s`), only the manifest changes.
+  that's also when the currently-unused `publish.nexus_repository` field in
+  the image manifest schema becomes relevant: once build and serve aren't
+  the same host anymore, you need a durable versioned copy in between
+  (Nexus raw hosted repo, not Docker/OCI — these are plain tarballs/kernel
+  images, no layering benefit from an image format, and it reuses the exact
+  auth/trust/idempotent-upload pattern already proven in the RPM pipeline's
+  `upload_if_absent`). PXE's actual hard constraint at that point is
+  networking (TFTP/DHCP needs L2 proximity to the boot VLAN, or a DHCP
+  relay), not storage — scope that separately before building it.
+
 ## where stuff actually lives
 
 - **manifests** (source pin + build config) — this repo, `packages/*.yaml`
-- **build templates** (`build.sh`, `mock.cfg` per OS/kernel gen) — this
-  repo, `templates/<name>/`
-- **dist-git** (imported spec + sources, full history) — cgit, one repo per
-  package, e.g. `lustre.git`, created on demand via restricted `newrepo` key
+  and `images/*.yaml`
+- **build templates** (`build.sh`, `mock.cfg` per OS/kernel gen, RPM
+  pipeline only) — this repo, `templates/<name>/`
+- **dist-git** (imported spec + sources, full history, RPM pipeline only) —
+  cgit, one repo per package, e.g. `lustre.git`, created on demand via
+  restricted `newrepo` key
 - **build artifacts** (final SRPM + binary RPMs) — Nexus `rpm-hosted`
+- **netboot image artifacts** — host-local today (`ppxe0001`'s ZFS pool),
+  not yet in Nexus
+- **the actual image-build logic** (chroot creation, package lists, bundling)
+  — `dugeo/ansible`, `roles/local/boot-image-9/*`. this repo only pins a ref
+  and triggers it, doesn't duplicate any of that logic
 - **runner infra** (ARC scale sets, hook extension, pull secrets, DUGCA
   bundle, PVC) — `dugeo/it-k8s`, GitOps/Flux
 - **builder image** (`registry.kube.dug.com/rpm-build:<tag>`) — built from
@@ -160,12 +247,18 @@ least once:
 ## required secrets (on `dugeo/it-rpm-build`)
 
 ```
+# RPM pipeline
 CGIT_SSH_PRIVATE_KEY          clone/push key for dist-git
 CGIT_REPO_ADMIN_PRIVATE_KEY   restricted key, only runs newrepo on cgit
 CGIT_KNOWN_HOSTS              pinned cgit host key, checked against a fixed
                                fingerprint in the workflow
 NEXUS_USERNAME / NEXUS_PASSWORD               publish creds (rpm-hosted)
 LEGACY_NEXUS_USERNAME / LEGACY_NEXUS_PASSWORD build dep creds (dug-el)
+
+# netboot image pipeline (not provisioned yet, see above)
+ANSIBLE_CHECKOUT_TOKEN        read-only access to dugeo/ansible
+ANSIBLE_SSH_PRIVATE_KEY       ssh key to the target host
+ANSIBLE_VAULT_PASSWORD        ansible-vault password
 ```
 
 ## runner labels, don't mix these up

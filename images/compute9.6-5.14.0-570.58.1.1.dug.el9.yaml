@@ -1,0 +1,18 @@
+image:
+  name: compute9.6-5.14.0-570.58.1.1.dug.el9
+  kernel_version: 5.14.0-570.58.1.1.dug.el9
+
+ansible:
+  repo: dugeo/ansible
+  # pin to a commit SHA for reproducible builds; bump deliberately when the
+  # playbook itself needs to change.
+  ref: a2a93d88bb7ed6ee4c3ba137c92ee02ef3702f3b
+  playbook: playbooks/rocky-image-build/compute9.6-5.14.0-570.58.1.1.dug.el9.yml
+
+target:
+  host: ppxe0001
+  remote_user: adm_fiqrim
+
+# publish:
+#   nexus_repository: netboot-images   # only needed once a separate serving
+#                                       # target replaces ppxe0001's build+serve role

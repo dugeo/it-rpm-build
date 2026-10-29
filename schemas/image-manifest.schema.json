@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Netboot image build manifest",
+  "type": "object",
+  "required": ["image", "ansible", "target"],
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["name", "kernel_version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Image identifier, e.g. compute9.6-5.14.0-570.58.1.1.dug.el9. Used as the Nexus artifact prefix."
+        },
+        "kernel_version": {
+          "type": "string",
+          "description": "Kernel version baked into this image, informational + used in artifact naming."
+        }
+      }
+    },
+    "ansible": {
+      "type": "object",
+      "required": ["repo", "ref", "playbook"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "owner/repo of the Ansible playbook repository, e.g. dugeo/ansible."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Branch, tag, or commit SHA to check out. Pin to a commit SHA for reproducible builds."
+        },
+        "playbook": {
+          "type": "string",
+          "description": "Path within the ansible repo to the playbook to run, e.g. playbooks/rocky-image-build/compute9.6-5.14.0-570.58.1.1.dug.el9.yml."
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["host"],
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host the playbook builds the image on (matches the playbook's own 'hosts:' entry, e.g. ppxe0001). Informational today; the playbook's inventory controls actual connection."
+        },
+        "remote_user": {
+          "type": "string",
+          "description": "Remote user for ansible-playbook --user. Defaults to the ansible.cfg remote_user if omitted."
+        }
+      }
+    },
+    "publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional archival copy. Not needed while a single host (e.g. ppxe0001) both builds and serves the image -- the playbook already deposits artifacts where it serves from. Fill this in when a separate serving target (e.g. an in-cluster PXE deployment) needs a durable, versioned copy instead of host-local files.",
+      "properties": {
+        "nexus_repository": {
+          "type": "string",
+          "description": "Nexus raw hosted repository name that stores build archives, e.g. netboot-images."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+name: Netboot image build
+
+on:
+  pull_request:
+    paths:
+      - 'images/**'
+      - 'schemas/image-manifest.schema.json'
+      - 'scripts/read-image-manifest.py'
+      - '.github/workflows/image-build.yml'
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: Manifest path under images/
+        required: true
+        default: images/compute9.6-5.14.0-570.58.1.1.dug.el9.yaml
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'images/**'
+      - 'schemas/image-manifest.schema.json'
+      - 'scripts/read-image-manifest.py'
+      - '.github/workflows/image-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: rpm-build-runners
+    # containerMode: kubernetes requires every job on this runner to
+    # declare a job container -- jobs without one are rejected outright.
+    container:
+      image: registry.kube.dug.com/rpm-build:0.1.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifests
+        run: |
+          for manifest in images/*.yaml; do
+            python3 scripts/read-image-manifest.py "$manifest" >/dev/null
+          done
+
+  build:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: rpm-build-runners
+    timeout-minutes: 120
+    container:
+      image: registry.kube.dug.com/rpm-build:0.1.1
+    env:
+      MANIFEST: ${{ inputs.manifest || 'images/compute9.6-5.14.0-570.58.1.1.dug.el9.yaml' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read manifest
+        id: manifest
+        run: |
+          python3 scripts/read-image-manifest.py "$MANIFEST" > "$RUNNER_TEMP/manifest.env"
+          cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
+
+      - name: Checkout ansible playbook repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ANSIBLE_REPO }}
+          ref: ${{ env.ANSIBLE_REF }}
+          # dugeo/ansible access is restricted -- a dedicated read-only
+          # deploy key/PAT must be provisioned for this workflow before a
+          # real build can run. See ANSIBLE_CHECKOUT_TOKEN below.
+          token: ${{ secrets.ANSIBLE_CHECKOUT_TOKEN }}
+          path: ansible
+
+      - name: Run image-build playbook
+        env:
+          # The ansible-playbook vault password and SSH access to the target
+          # host are both still TBD (tracked separately). Until then this
+          # step is wired but will fail fast on the missing secrets rather
+          # than silently no-op, so it's obvious what's left to configure.
+          ANSIBLE_SSH_PRIVATE_KEY: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANSIBLE_SSH_PRIVATE_KEY"
+          test -n "$ANSIBLE_VAULT_PASSWORD"
+
+          install -d -m 0700 /root/.ssh
+          printf '%s\n' "$ANSIBLE_SSH_PRIVATE_KEY" > /root/.ssh/id_ed25519
+          chmod 0600 /root/.ssh/id_ed25519
+          ssh-keyscan -T 5 "$TARGET_HOST" >> /root/.ssh/known_hosts 2>/dev/null || true
+
+          printf '%s' "$ANSIBLE_VAULT_PASSWORD" > "$RUNNER_TEMP/vault-password"
+          chmod 0600 "$RUNNER_TEMP/vault-password"
+
+          cd ansible
+          ansible-playbook "$ANSIBLE_PLAYBOOK" \
+            --vault-password-file "$RUNNER_TEMP/vault-password" \
+            --private-key /root/.ssh/id_ed25519 \
+            ${TARGET_REMOTE_USER:+--user "$TARGET_REMOTE_USER"}
