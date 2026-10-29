@@ -4,6 +4,10 @@ guide for adding a new package (or new kernel pairing) using the existing
 `templates/el9/` template. read ARCHITECTURE.md first if you haven't, it
 explains why the pipeline looks the way it does.
 
+tl;dr: no ssh, no manual mock runs, no manual scp to Nexus. you write a
+manifest, push it (or trigger the workflow), CI does import → build →
+verify → publish on its own. that's the whole workflow below.
+
 ## what a template actually is
 
 just two files copied into the package's dist-git checkout right before the

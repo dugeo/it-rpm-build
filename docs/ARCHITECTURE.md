@@ -8,6 +8,23 @@ Reference build: Lustre client 2.16.1-1 against kernel
 `5.14.0-570.26.1.2.dug.el9`. Built and published 2026-10-29, this is what
 the doc is based on.
 
+## why this matters
+
+old way of building an RPM: ssh into a build box, clone the spec, fiddle with
+mock configs by hand, run mock, scp the result to Nexus yourself, hope you
+remember what you did next time a new version drops. all manual, all
+tribal knowledge, breaks the moment the person who did it last isn't around.
+
+new way: nobody ssh's into anything. you write a manifest (pinned URL +
+sha256 + which template + which kernel if any), push it, CI does the rest —
+import, build, verify, publish. want to rebuild the same package again, or
+build it for a different kernel? edit the manifest, push, done. the whole
+build is reproducible from git history, not from someone's memory of what
+flags they used.
+
+so adding/rebuilding a package is now a config change, not an op. see the
+template guide for the actual "push this and it builds" steps.
+
 ## related repos
 
 | Repo | What it's for |
