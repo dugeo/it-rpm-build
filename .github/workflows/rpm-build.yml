@@ -30,6 +30,10 @@ permissions:
 jobs:
   validate:
     runs-on: rpm-build-runners
+    # containerMode: kubernetes requires every job on this runner to
+    # declare a job container -- jobs without one are rejected outright.
+    container:
+      image: registry.kube.dug.com/rpm-build:0.1.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
