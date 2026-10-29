@@ -8,6 +8,11 @@ and Nexus publication. It is intentionally separate from `dugeo/it-k8s`:
 - cgit contains generated dist-git package repositories;
 - Nexus contains SRPM/RPM artifacts.
 
+**See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the full pipeline
+flow, why it's built the way it is, and every related repository/system it
+touches. **See [`docs/TEMPLATE_GUIDE.md`](docs/TEMPLATE_GUIDE.md)** for a
+step-by-step guide to adding a new package or kernel pairing.
+
 ## Add a package
 
 Copy a manifest under `packages/`, set the immutable SRPM URL and SHA-256,
@@ -41,7 +46,10 @@ LEGACY_NEXUS_PASSWORD          legacy dependency Nexus password
 The build dependency repository is the legacy DUG EL repository at
 `https://nexus.dug.com/repository/dug-el/9/dug/x86_64/`; credentials are supplied
 only through the existing GitHub Actions secrets. Build publication remains on
-`https://nexus.kube.dug.com/repository/rpm-hosted`.
+`https://nexus.kube.dug.com/repository/rpm-hosted`, whose TLS certificate is
+signed by the cluster's internal DUGCA chain — the `rpm-build` builder image
+(`Containerfile`) bakes in `dugca-bundle.pem` via `update-ca-trust` so uploads
+verify TLS normally, without `-k`/insecure flags.
 
 The workflow uses the `rpm-build-runners` ARC label and performs the full
 sequence without Kubernetes administrator credentials:
