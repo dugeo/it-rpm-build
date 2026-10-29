@@ -115,15 +115,15 @@ jobs:
             --env NEXUS_USERNAME --env NEXUS_PASSWORD \
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
               install -d -m 0700 /root/.ssh /workspace/results
-              # Stage the build template onto the bind-mounted workspace
-              # immediately, before any slow network step. This mock/dind
-              # environment has been observed to reclaim /opt/rpm-templates
-              # (an image layer) from underneath an already-running
-              # container after a few minutes, while /workspace (a host
-              # bind mount) is never affected -- so the template must not
-              # be read from the image after this point.
+              # Stage the build template from the bind-mounted checkout
+              # immediately, before any slow network step. The /opt/rpm-templates
+              # copy baked into the image (via Containerfile COPY) was observed
+              # to be unreadable from inside `docker run` -- sometimes
+              # immediately, sometimes after a few minutes -- on this
+              # dind/mock runner, so do not rely on it. /workspace is the host
+              # bind mount and has been reliably present throughout every run.
               install -d -m 0755 /workspace/build-template
-              cp -a "/opt/rpm-templates/$BUILD_TEMPLATE/." /workspace/build-template/
+              cp -a "/workspace/templates/$BUILD_TEMPLATE/." /workspace/build-template/
               cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
