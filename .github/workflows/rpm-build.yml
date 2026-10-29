@@ -121,7 +121,7 @@ jobs:
           install -d -m 0755 /etc/yum.repos.d
           printf "[legacy]\nname=legacy DUG EL\nbaseurl=%s\nenabled=1\ngpgcheck=0\nusername=%s\npassword=%s\n" "$RPM_REPOSITORY_URL" "$LEGACY_NEXUS_USERNAME" "$LEGACY_NEXUS_PASSWORD" > /etc/yum.repos.d/legacy.repo
 
-          workdir="$RUNNER_TEMP/rpm-build"
+          workdir=/workspace
           rm -rf "$workdir"
           install -d -m 0755 "$workdir/input" "$workdir/results"
 
