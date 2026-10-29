@@ -30,19 +30,10 @@ permissions:
 jobs:
   validate:
     runs-on: rpm-build-runners
-    env:
-      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Fetch repository
-        run: |
-          set -euo pipefail
-          curl --fail --location --retry 5 --retry-all-errors \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/repository.tar.gz"
-          tar -xzf "$RUNNER_TEMP/repository.tar.gz" \
-            --strip-components=1 --directory "$GITHUB_WORKSPACE"
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Validate manifests
         run: |
           for manifest in packages/*.yaml; do
@@ -54,34 +45,29 @@ jobs:
     needs: validate
     runs-on: rpm-build-runners
     timeout-minutes: 120
+    # containerMode: kubernetes places this container as a real sibling
+    # container in the runner pod, sharing GITHUB_WORKSPACE through the
+    # scale set's kubernetesModeWorkVolumeClaim -- no docker-in-docker,
+    # no bind-mount translation. `mock` needs chroot/mount privileges,
+    # granted through `options`.
+    container:
+      image: registry.kube.dug.com/rpm-build:0.1.0
+      options: --privileged
     env:
       MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
       CGIT_REMOTE_BASE: "git@cgit.devops.svc.cluster.local:"
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
-      GITHUB_TOKEN: ${{ github.token }}
       LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
       LEGACY_NEXUS_PASSWORD: ${{ secrets.LEGACY_NEXUS_PASSWORD }}
     steps:
-      - name: Fetch repository
-        run: |
-          set -euo pipefail
-          curl --fail --location --retry 5 --retry-all-errors \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/repository.tar.gz"
-          tar -xzf "$RUNNER_TEMP/repository.tar.gz" \
-            --strip-components=1 --directory "$GITHUB_WORKSPACE"
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Read manifest
         id: manifest
         run: |
           python3 scripts/read-manifest.py "$MANIFEST" > "$RUNNER_TEMP/manifest.env"
           cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
-
-      - name: Build RPM tool image
-        run: |
-          docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
 
       - name: Import, build, verify, and publish
         env:
@@ -99,97 +85,74 @@ jobs:
           test -n "$CGIT_KNOWN_HOSTS"
           test -n "$NEXUS_USERNAME"
           test -n "$NEXUS_PASSWORD"
-          install -d -m 0700 "$RUNNER_TEMP/rpm-ssh"
-          printf '%s\n' "$CGIT_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/rpm-ssh/id_ed25519"
-          printf '%s\n' "$CGIT_REPO_ADMIN_PRIVATE_KEY" > "$RUNNER_TEMP/rpm-ssh/repo-admin"
-          printf '%s\n' "$CGIT_KNOWN_HOSTS" > "$RUNNER_TEMP/rpm-ssh/known_hosts"
-          chmod 0600 "$RUNNER_TEMP/rpm-ssh"/*
-          docker run --rm --privileged \
-            --volume "$GITHUB_WORKSPACE:/workspace" \
-            --volume "$RUNNER_TEMP/rpm-ssh:/run/rpm-ssh:ro" \
-            --workdir /workspace \
-            --env PACKAGE --env REPOSITORY --env SRPM_URL --env SRPM_SHA256 \
-            --env BUILD_TEMPLATE --env MOCK_CONFIG --env BUILD_SCRIPT --env KERNEL_VERSION --env RPM_REPOSITORY_URL \
-            --env NEXUS_REPOSITORY --env NEXUS_BASE_URL --env CGIT_REMOTE_BASE \
-            --env LEGACY_NEXUS_USERNAME --env LEGACY_NEXUS_PASSWORD \
-            --env NEXUS_USERNAME --env NEXUS_PASSWORD \
-            rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
-              install -d -m 0700 /root/.ssh /workspace/results
-              # Stage the build template from the bind-mounted checkout
-              # immediately, before any slow network step. The /opt/rpm-templates
-              # copy baked into the image (via Containerfile COPY) was observed
-              # to be unreadable from inside `docker run` -- sometimes
-              # immediately, sometimes after a few minutes -- on this
-              # dind/mock runner, so do not rely on it. /workspace is the host
-              # bind mount and has been reliably present throughout every run.
-              install -d -m 0755 /workspace/build-template
-              cp -a "/workspace/templates/$BUILD_TEMPLATE/." /workspace/build-template/
-              cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
-              cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
-              cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
-              chmod 0600 /root/.ssh/*
-              internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/tmp/cgit-keyscan.err | grep -v "^#" | head -n1)
-              if test -z "$internal_key"; then
-                echo "cgit host-key scan returned no key"
-                cat /tmp/cgit-keyscan.err >&2 || true
-                exit 1
-              fi
-              read -r _ key_type key_blob _ <<< "$internal_key"
-              if test -z "$key_type" || test -z "$key_blob"; then
-                echo "cgit host-key scan returned an unexpected format"
-                exit 1
-              fi
-              printf "%s %s\n" "$key_type" "$key_blob" > /tmp/cgit-host-key
-              fingerprint_line=$(ssh-keygen -lf /tmp/cgit-host-key -E sha256)
-              actual_fingerprint=${fingerprint_line#* }
-              actual_fingerprint=${actual_fingerprint%% *}
-              echo "cgit scanned host-key fingerprint: $actual_fingerprint"
-              if test "$actual_fingerprint" != "SHA256:z/nAPjFPgGvgSgJ9jLWLh/YfDTW6zdXwIJNO750f8Lc"; then
-                echo "cgit host-key fingerprint mismatch"
-                exit 1
-              fi
-              printf "%s\n" "$internal_key" >> /root/.ssh/known_hosts
-              printf "%s\n" "Host cgit.devops.svc.cluster.local" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
-              chmod 0600 /root/.ssh/config
-              install -d -m 0755 /etc/yum.repos.d
-              printf "[legacy]\nname=legacy DUG EL\nbaseurl=%s\nenabled=1\ngpgcheck=0\nusername=%s\npassword=%s\n" "$RPM_REPOSITORY_URL" "$LEGACY_NEXUS_USERNAME" "$LEGACY_NEXUS_PASSWORD" > /etc/yum.repos.d/legacy.repo
-              mkdir -p /workspace/input
-              curl --fail --location --retry 5 --retry-all-errors --output /workspace/input/source.src.rpm "$SRPM_URL"
-              printf "%s  %s\n" "$SRPM_SHA256" /workspace/input/source.src.rpm | sha256sum --check -
-              rm -rf /workspace/package
-              if ! git ls-remote "$CGIT_REMOTE_BASE$REPOSITORY.git" HEAD >/dev/null 2>&1; then
-                ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.devops.svc.cluster.local "newrepo $REPOSITORY"
-              fi
-              git clone "$CGIT_REMOTE_BASE$REPOSITORY.git" /workspace/package
-              cd /workspace/package
-              rpkg import --do-not-check-specfile-name --offline /workspace/input/source.src.rpm
-              mkdir -p SOURCES
-              cp /workspace/input/source.src.rpm "SOURCES/$(basename /workspace/input/source.src.rpm)"
-              git config user.name "RPM CI Import"
-              git config user.email "rpm-ci@kube.dug.com"
-              git diff --check
-              git add -A
-              git commit -m "Import $(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}" /workspace/input/source.src.rpm)" || true
-              git push origin HEAD
+          install -d -m 0700 /root/.ssh
+          printf '%s\n' "$CGIT_SSH_PRIVATE_KEY" > /root/.ssh/id_ed25519
+          printf '%s\n' "$CGIT_REPO_ADMIN_PRIVATE_KEY" > /root/.ssh/repo-admin
+          chmod 0600 /root/.ssh/id_ed25519 /root/.ssh/repo-admin
 
-              # Build inputs belong to the package's dist-git repository. Check
-              # them only after import so a newly created repository receives
-              # the verified SRPM even when its build contract is incomplete.
-              # (Template staged at /workspace/build-template at container start -- see above.)
-              echo "DEBUG: workspace listing right before final template copy:"
-              find /workspace -maxdepth 2
-              mount | grep workspace || true
-              cp -a /workspace/build-template/. /workspace/package/
-              test -f "$BUILD_SCRIPT"
-              test -f "$MOCK_CONFIG"
-              chmod +x "$BUILD_SCRIPT"
-              rpkg srpm --builddir /workspace/results/srpm
-              ./$BUILD_SCRIPT --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
-              find /workspace/package -type f -name "*.rpm" -print -exec rpm -K {} \; | tee /workspace/results/rpm-verification.txt
-              find /workspace/results/srpm /workspace/package -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
-                curl --fail --upload-file "$srpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
-              done
-              find /workspace/package -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
-                curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
-              done
-            '
+          internal_key=$(ssh-keyscan -T 5 -t ed25519 cgit.devops.svc.cluster.local 2>/tmp/cgit-keyscan.err | grep -v "^#" | head -n1)
+          if test -z "$internal_key"; then
+            echo "cgit host-key scan returned no key"
+            cat /tmp/cgit-keyscan.err >&2 || true
+            exit 1
+          fi
+          read -r _ key_type key_blob _ <<< "$internal_key"
+          if test -z "$key_type" || test -z "$key_blob"; then
+            echo "cgit host-key scan returned an unexpected format"
+            exit 1
+          fi
+          printf "%s %s\n" "$key_type" "$key_blob" > /tmp/cgit-host-key
+          fingerprint_line=$(ssh-keygen -lf /tmp/cgit-host-key -E sha256)
+          actual_fingerprint=${fingerprint_line#* }
+          actual_fingerprint=${actual_fingerprint%% *}
+          echo "cgit scanned host-key fingerprint: $actual_fingerprint"
+          if test "$actual_fingerprint" != "SHA256:z/nAPjFPgGvgSgJ9jLWLh/YfDTW6zdXwIJNO750f8Lc"; then
+            echo "cgit host-key fingerprint mismatch"
+            exit 1
+          fi
+          printf "%s\n" "$internal_key" >> /root/.ssh/known_hosts
+          printf "%s\n" "Host cgit.devops.svc.cluster.local" "  User git" "  IdentityFile /root/.ssh/id_ed25519" "  IdentitiesOnly yes" "  StrictHostKeyChecking yes" > /root/.ssh/config
+          chmod 0600 /root/.ssh/config
+
+          install -d -m 0755 /etc/yum.repos.d
+          printf "[legacy]\nname=legacy DUG EL\nbaseurl=%s\nenabled=1\ngpgcheck=0\nusername=%s\npassword=%s\n" "$RPM_REPOSITORY_URL" "$LEGACY_NEXUS_USERNAME" "$LEGACY_NEXUS_PASSWORD" > /etc/yum.repos.d/legacy.repo
+
+          workdir="$RUNNER_TEMP/rpm-build"
+          rm -rf "$workdir"
+          install -d -m 0755 "$workdir/input" "$workdir/results"
+
+          curl --fail --location --retry 5 --retry-all-errors --output "$workdir/input/source.src.rpm" "$SRPM_URL"
+          printf "%s  %s\n" "$SRPM_SHA256" "$workdir/input/source.src.rpm" | sha256sum --check -
+
+          if ! git ls-remote "$CGIT_REMOTE_BASE$REPOSITORY.git" HEAD >/dev/null 2>&1; then
+            ssh -i /root/.ssh/repo-admin -o IdentitiesOnly=yes git@cgit.devops.svc.cluster.local "newrepo $REPOSITORY"
+          fi
+          git clone "$CGIT_REMOTE_BASE$REPOSITORY.git" "$workdir/package"
+          cd "$workdir/package"
+          rpkg import --do-not-check-specfile-name --offline "$workdir/input/source.src.rpm"
+          mkdir -p SOURCES
+          cp "$workdir/input/source.src.rpm" "SOURCES/$(basename "$workdir/input/source.src.rpm")"
+          git config user.name "RPM CI Import"
+          git config user.email "rpm-ci@kube.dug.com"
+          git diff --check
+          git add -A
+          git commit -m "Import $(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}" "$workdir/input/source.src.rpm")" || true
+          git push origin HEAD
+
+          # Build inputs belong to the package's dist-git repository. Copy
+          # them only after import so a newly created repository receives
+          # the verified SRPM even when its build contract is incomplete.
+          cp -a "$GITHUB_WORKSPACE/templates/$BUILD_TEMPLATE/." "$workdir/package/"
+          test -f "$workdir/package/$BUILD_SCRIPT"
+          test -f "$workdir/package/$MOCK_CONFIG"
+          chmod +x "$workdir/package/$BUILD_SCRIPT"
+          cd "$workdir/package"
+          rpkg srpm --builddir "$workdir/results/srpm"
+          ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
+          find "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
+          find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
+            curl --fail --upload-file "$srpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
+          done
+          find "$workdir/package" -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
+            curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
+          done
