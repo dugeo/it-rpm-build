@@ -83,6 +83,13 @@ jobs:
         run: |
           docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
 
+      - name: DEBUG verify templates baked into image
+        run: |
+          echo "DEBUG: host-side templates dir:"
+          find "$GITHUB_WORKSPACE/templates" -maxdepth 3 2>&1 || true
+          echo "DEBUG: image-side /opt/rpm-templates:"
+          docker run --rm rpm-build:${GITHUB_SHA} find /opt/rpm-templates -maxdepth 3 2>&1 || true
+
       - name: Import, build, verify, and publish
         env:
           CGIT_SSH_PRIVATE_KEY: ${{ secrets.CGIT_SSH_PRIVATE_KEY }}
