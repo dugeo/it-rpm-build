@@ -38,9 +38,10 @@ configdir=/etc/mock
 install -d -m 0755 "$configdir"
 cp "$MOCK_CONFIG" "$configdir/rpm-ci-build.cfg"
 
-# The legacy DUG repository (and, when a specific kernel is pinned, its exact
-# kernel-devel package) is only known/credentialed at build time, so it is
-# appended to the mock config here instead of being committed to git.
+# The legacy DUG repository (and, when a specific kernel is pinned, a
+# second repository scoped to that exact kernel build) are only known or
+# credentialed at build time, so they are appended to the mock config here
+# instead of being committed to git.
 {
   printf "config_opts['dnf.conf'] += \"\"\"\n"
   printf '[legacy]\n'
@@ -54,7 +55,28 @@ cp "$MOCK_CONFIG" "$configdir/rpm-ci-build.cfg"
 } >> "$configdir/rpm-ci-build.cfg"
 
 if [ -n "$kernel" ]; then
-  printf "config_opts['chroot_setup_cmd'] += ' kernel-devel-%s'\n" "$kernel" >> "$configdir/rpm-ci-build.cfg"
+  # Each kernel build gets its own package directory under dug-el, e.g.
+  #   https://nexus.dug.com/repository/dug-el/9/dug/x86_64/            (generic)
+  #   https://nexus.dug.com/repository/dug-el/kernel-<version>/dug/x86_64/ (per-kernel)
+  # Derive the per-kernel URL from RPM_REPOSITORY_URL's dug-el/ prefix so the
+  # kernel repo location never has to be duplicated in the manifest.
+  repo_prefix="${RPM_REPOSITORY_URL%%dug-el/*}dug-el/"
+  kernel_repo_url="${repo_prefix}kernel-${kernel}/dug/x86_64/"
+  {
+    printf "config_opts['dnf.conf'] += \"\"\"\n"
+    printf '[legacy-kernel]\n'
+    printf 'name=legacy DUG EL kernel %s\n' "$kernel"
+    printf 'baseurl=%s\n' "$kernel_repo_url"
+    printf 'enabled=1\n'
+    printf 'gpgcheck=0\n'
+    printf 'username=%s\n' "$LEGACY_NEXUS_USERNAME"
+    printf 'password=%s\n' "$LEGACY_NEXUS_PASSWORD"
+    printf '\"\"\"\n'
+  } >> "$configdir/rpm-ci-build.cfg"
+  # Lustre's spec resolves %{kdir}/%{kobjdir} from /lib/modules/%{kver}/{source,build},
+  # which come from kernel-devel; kernel/kernel-headers are pulled in for
+  # completeness since they share the same per-kernel repo.
+  printf "config_opts['chroot_setup_cmd'] += ' kernel-devel-%s kernel-headers-%s'\n" "$kernel" "$kernel" >> "$configdir/rpm-ci-build.cfg"
 fi
 
 mkdir -p /workspace/results/rpm

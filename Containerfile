@@ -60,3 +60,4 @@ RUN set -eux; \
     sed -i '1s|^#!.*|#!/usr/bin/env python3|' /usr/bin/rpkg
 
 WORKDIR /workspace
+COPY templates/ /opt/rpm-templates/
