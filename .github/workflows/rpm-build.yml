@@ -156,9 +156,26 @@ jobs:
           find "$workdir/package" -maxdepth 1 -type f -name '*.src.rpm' -exec mv -t "$workdir/results/srpm/" {} +
           ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
           find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
+
+          # Nexus hosted repos reject re-uploads of an existing path (HTTP 400,
+          # no-redeploy policy), so re-running the pipeline against an
+          # unchanged SRPM/RPM set must not fail here. Skip any artifact
+          # that's already present at the destination path instead of
+          # unconditionally PUTting it.
+          upload_if_absent() {
+            local file="$1" url="$2"
+            local code
+            code="$(curl -s -o /dev/null -w '%{http_code}' --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$url")"
+            if [ "$code" = "200" ]; then
+              echo "skip (already published): $url"
+              return 0
+            fi
+            curl --fail --upload-file "$file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$url"
+          }
+
           find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
-            curl --fail --upload-file "$srpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
+            upload_if_absent "$srpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
           done
           find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
-            curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
+            upload_if_absent "$rpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
           done
