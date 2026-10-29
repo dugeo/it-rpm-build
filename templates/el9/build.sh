@@ -86,4 +86,19 @@ if [ -n "$kernel" ]; then
   mock_args+=(--define "kver ${kernel}.${arch}")
 fi
 
+dump_mock_logs() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "build.sh: mock failed (exit $status); dumping build logs" >&2
+    for log in root.log build.log state.log; do
+      if [ -f "/workspace/results/rpm/$log" ]; then
+        echo "===== $log =====" >&2
+        tail -n 300 "/workspace/results/rpm/$log" >&2
+      fi
+    done
+  fi
+  return "$status"
+}
+trap dump_mock_logs EXIT
+
 mock "${mock_args[@]}" --rebuild "$srpm_file"
