@@ -155,10 +155,10 @@ jobs:
           rpkg --release rhel-9 srpm --builddir "$workdir/results/srpm"
           find "$workdir/package" -maxdepth 1 -type f -name '*.src.rpm' -exec mv -t "$workdir/results/srpm/" {} +
           ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
-          find "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
+          find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
           find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
             curl --fail --upload-file "$srpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
           done
-          find "$workdir/package" -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
+          find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
             curl --fail --upload-file "$rpm_file" --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
           done
