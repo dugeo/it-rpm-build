@@ -153,6 +153,7 @@ jobs:
           cd "$workdir/package"
           mkdir -p "$workdir/results/srpm"
           rpkg --release rhel-9 srpm --builddir "$workdir/results/srpm"
+          find "$workdir/package" -maxdepth 1 -type f -name '*.src.rpm' -exec mv -t "$workdir/results/srpm/" {} +
           ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
           find "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
           find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
