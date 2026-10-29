@@ -83,13 +83,6 @@ jobs:
         run: |
           docker build --file Containerfile --tag rpm-build:${GITHUB_SHA} .
 
-      - name: DEBUG verify templates baked into image
-        run: |
-          echo "DEBUG: host-side templates dir:"
-          find "$GITHUB_WORKSPACE/templates" -maxdepth 3 2>&1 || true
-          echo "DEBUG: image-side /opt/rpm-templates:"
-          docker run --rm rpm-build:${GITHUB_SHA} find /opt/rpm-templates -maxdepth 3 2>&1 || true
-
       - name: Import, build, verify, and publish
         env:
           CGIT_SSH_PRIVATE_KEY: ${{ secrets.CGIT_SSH_PRIVATE_KEY }}
@@ -121,9 +114,16 @@ jobs:
             --env LEGACY_NEXUS_USERNAME --env LEGACY_NEXUS_PASSWORD \
             --env NEXUS_USERNAME --env NEXUS_PASSWORD \
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
-              echo "DEBUG: inside main container, /opt listing:"
-              find /opt -maxdepth 3
               install -d -m 0700 /root/.ssh /workspace/results
+              # Stage the build template onto the bind-mounted workspace
+              # immediately, before any slow network step. This mock/dind
+              # environment has been observed to reclaim /opt/rpm-templates
+              # (an image layer) from underneath an already-running
+              # container after a few minutes, while /workspace (a host
+              # bind mount) is never affected -- so the template must not
+              # be read from the image after this point.
+              install -d -m 0755 /workspace/build-template
+              cp -a "/opt/rpm-templates/$BUILD_TEMPLATE/." /workspace/build-template/
               cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
               cp /run/rpm-ssh/known_hosts /root/.ssh/known_hosts
@@ -175,7 +175,8 @@ jobs:
               # Build inputs belong to the package's dist-git repository. Check
               # them only after import so a newly created repository receives
               # the verified SRPM even when its build contract is incomplete.
-              cp -a "/opt/rpm-templates/$BUILD_TEMPLATE/." /workspace/package/
+              # (Template staged at /workspace/build-template at container start -- see above.)
+              cp -a /workspace/build-template/. /workspace/package/
               test -f "$BUILD_SCRIPT"
               test -f "$MOCK_CONFIG"
               chmod +x "$BUILD_SCRIPT"
