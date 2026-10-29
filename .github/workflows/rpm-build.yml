@@ -176,6 +176,9 @@ jobs:
               # them only after import so a newly created repository receives
               # the verified SRPM even when its build contract is incomplete.
               # (Template staged at /workspace/build-template at container start -- see above.)
+              echo "DEBUG: workspace listing right before final template copy:"
+              find /workspace -maxdepth 2
+              mount | grep workspace || true
               cp -a /workspace/build-template/. /workspace/package/
               test -f "$BUILD_SCRIPT"
               test -f "$MOCK_CONFIG"
