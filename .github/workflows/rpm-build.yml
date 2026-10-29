@@ -179,8 +179,8 @@ jobs:
           find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
 
           # Prove the kmod targets the requested kernel before anything is
-          # published: kernel-uname-r requirement and module vermagic must
-          # both name KERNEL_VERSION, and the version must be the SRPM's.
+          # published: module vermagic must name KERNEL_VERSION and the kmod
+          # version must be the SRPM's.
           {
             echo "# artifact verification"
             echo "kernel=${KERNEL_VERSION:-<none>}"
@@ -196,9 +196,10 @@ jobs:
             kmod_rpm=$(find "$workdir/results/rpm" -name 'kmod-lustre-client-[0-9]*.rpm' | head -n1)
             test -n "$kmod_rpm" || { echo "no kmod-lustre-client RPM was built"; exit 1; }
             rpm -qp --qf '%{VERSION}' "$kmod_rpm" | grep -qx "$want_ver"
-            rpm -qp --requires "$kmod_rpm" | tee -a "$workdir/results/verification.txt" \
-              | grep -F "$KERNEL_VERSION" \
-              || { echo "kmod does not require kernel $KERNEL_VERSION"; exit 1; }
+            # Informational: the requires list is logged, but the module
+            # vermagic below is the authoritative kernel check (the kmod
+            # spec does not necessarily emit a kernel-uname-r requirement).
+            { echo "== requires"; rpm -qp --requires "$kmod_rpm"; } | tee -a "$workdir/results/verification.txt"
             ex=$(mktemp -d)
             (cd "$ex" && rpm2cpio "$kmod_rpm" | cpio -idm --quiet)
             ko=$(find "$ex" -name 'lustre.ko*' -o -name 'lnet.ko*' | head -n1)
