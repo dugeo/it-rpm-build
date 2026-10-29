@@ -1,41 +1,38 @@
-# Using the `el9` build template
+# using the el9 build template
 
-This guide is for adding a **new package** (or a new kernel pairing for an
-existing package) to the pipeline using the existing `templates/el9/`
-template. Read `docs/ARCHITECTURE.md` first if you haven't — it explains why
-the pipeline is shaped this way.
+guide for adding a new package (or new kernel pairing) using the existing
+`templates/el9/` template. read ARCHITECTURE.md first if you haven't, it
+explains why the pipeline looks the way it does.
 
-## 1. What a template actually is
+## what a template actually is
 
-A template is a pair of files copied verbatim into the package's dist-git
-checkout right before the build step:
+just two files copied into the package's dist-git checkout right before the
+build step:
 
 ```
 templates/<name>/
-  build.sh    — the mock build driver (parses --arch/--kernel, runs mock)
-  mock.cfg    — the base mock chroot configuration
+  build.sh    — mock build driver, parses --arch/--kernel, runs mock
+  mock.cfg    — base mock chroot config
 ```
 
-`templates/el9/` targets CentOS Stream/RHEL 9 and is currently the only
-template. It's generic across *packages* but **one template directory per
-distinct OS/kernel-ABI generation** — if you need to build against, say, an
-EL8 target or a kernel so different that `build.sh`'s assumptions no longer
-hold, copy `templates/el9/` to a new directory (e.g. `templates/el8/`) and
-adjust rather than overloading `el9`.
+`templates/el9/` targets CentOS Stream/RHEL 9, it's the only one we've got.
+generic across packages but one template dir per OS/kernel-ABI generation —
+if you need EL8 or a kernel different enough that build.sh's assumptions
+break, copy el9 to a new dir and adjust, don't overload el9.
 
-## 2. Add a package manifest
+## add a package manifest
 
-Create `packages/<name>-<version>.yaml`:
+create `packages/<name>-<version>.yaml`:
 
 ```yaml
 package: <short-name>          # e.g. lustre
-repository: <short-name>       # dist-git repo name on cgit; defaults to package
+repository: <short-name>       # dist-git repo name on cgit, defaults to package
 source:
   url: <immutable upstream SRPM URL, pinned to an exact version>
   sha256: <SHA-256 of that exact file>
 build:
   template: el9
-  kernel: <kernel-version>     # omit entirely for a kernel-independent package
+  kernel: <kernel-version>     # omit if package doesn't need a kernel
   rpm_repository_url: https://nexus.dug.com/repository/dug-el/9/dug/x86_64/
   mock_config: mock.cfg
   script: build.sh
@@ -43,91 +40,84 @@ publish:
   nexus_repository: rpm-hosted
 ```
 
-**Always pin an exact, immutable upstream URL and verify its SHA-256
-yourself before committing** (download it once, `sha256sum` it, compare
-against the project's own published checksums page if one exists). The
-workflow refuses to proceed if the downloaded file's digest doesn't match.
+always pin an exact immutable URL and check the SHA-256 yourself before
+committing (download it, sha256sum it, compare against the project's own
+published checksums if they have one). the workflow refuses to continue if
+the digest doesn't match.
 
-Validate the manifest locally before opening a PR:
+validate locally before opening a PR:
 
 ```sh
 python3 scripts/read-manifest.py packages/<name>-<version>.yaml
 ```
 
-This prints the resolved environment variables the workflow will use
-(`SRPM_URL`, `SRPM_SHA256`, `BUILD_TEMPLATE`, `KERNEL_VERSION`, etc.) — a
-quick way to catch typos before CI does.
+prints the env vars the workflow will actually use (SRPM_URL, SRPM_SHA256,
+BUILD_TEMPLATE, KERNEL_VERSION, etc) — catches typos before CI does.
 
-## 3. Kernel-specific builds — what `--kernel` actually does
+## kernel-specific builds — what `--kernel` actually does
 
-If `build.kernel` is set, `build.sh`:
+if `build.kernel` is set, build.sh:
 
-1. Adds a **second** legacy repo scoped to that exact kernel build:
+1. adds a second legacy repo scoped to that exact kernel:
    `https://nexus.dug.com/repository/dug-el/kernel-<version>/dug/x86_64/`
-   (derived automatically from `rpm_repository_url`'s `dug-el/` prefix —
-   you don't need to spell this out in the manifest).
-2. Installs `kernel-devel-<version>` and `kernel-headers-<version>` into the
-   chroot from that repo.
-3. Creates the `/lib/modules/<kernel>.<arch>/{source,build}` symlinks that
-   `kernel-devel` doesn't provide on its own (see ARCHITECTURE.md point 7).
-4. Defines the `kver` RPM macro mock passes through
-   (`--define 'kver <kernel>.<arch>'`), which most kernel-module specs read
-   via `%{kver}` to pick the right `/lib/modules` path.
+   (derived from `rpm_repository_url`'s `dug-el/` prefix, you don't write
+   this URL yourself)
+2. installs `kernel-devel-<version>` and `kernel-headers-<version>` from it
+3. creates `/lib/modules/<kernel>.<arch>/{source,build}` symlinks that
+   kernel-devel doesn't provide (see ARCHITECTURE.md point 7)
+4. defines the `kver` macro mock passes through
+   (`--define 'kver <kernel>.<arch>'`) — most kernel-module specs read this
+   via `%{kver}` for the `/lib/modules` path
 
-If your package doesn't build kernel modules, just omit `build.kernel`
-entirely — `build.sh` skips all of the above.
+if your package doesn't build kernel modules just skip `build.kernel`
+entirely, build.sh skips all of the above.
 
-### Per-kernel Nexus repository naming
+### per-kernel Nexus repo naming
 
-The legacy build-dependency Nexus repo for a specific kernel build **must**
-exist at:
+the legacy build-dep repo for a specific kernel has to exist at:
 
 ```
 https://nexus.dug.com/repository/dug-el/kernel-<kernel-version>/dug/x86_64/
 ```
 
-i.e. the directory name is `kernel-<version>`, not bare `<version>`. This is
-handled automatically by `build.sh` — you never type this URL yourself in
-the manifest, only the generic `rpm_repository_url`. If a new kernel's
-packages aren't resolvable, check that this Nexus repo exists with that
-exact naming convention before debugging anything else.
+directory name is `kernel-<version>`, not bare `<version>`. build.sh builds
+this automatically, you only ever type the generic `rpm_repository_url` in
+the manifest. if a new kernel's packages don't resolve, check this repo
+exists with the right naming before you go debug anything else.
 
-## 4. Client-vs-server / `--without` flags
+## client vs server / `--without` flags
 
-If the upstream project ships separable client/server (or similarly split)
-RPM subsets and your manifest's SRPM URL points at the client-only variant,
-check whether its spec needs an explicit `--without <feature>` the way
-Lustre does (see ARCHITECTURE.md point 10). This is currently hardcoded in
-`templates/el9/build.sh`'s final `mock --rebuild` invocation
-(`--rpmbuild-opts="--without servers"`). If you add a second package that
-needs a *different* set of `--without`/`--with` flags, **do not hardcode a
-second condition into the shared `build.sh`** — instead add a manifest field
-(e.g. `build.rpmbuild_opts`) that `read-manifest.py` passes through as an
-env var, and have `build.sh` consume it generically. This keeps the
-template package-agnostic.
+if upstream ships separable client/server subsets and your SRPM is the
+client-only variant, check if the spec needs `--without <feature>` like
+Lustre does (ARCHITECTURE.md point 10). currently hardcoded into
+`templates/el9/build.sh`'s final mock call
+(`--rpmbuild-opts="--without servers"`). if you add a package that needs a
+different set of flags, don't hardcode a second condition into the shared
+build.sh — add a manifest field instead (e.g. `build.rpmbuild_opts`), have
+read-manifest.py pass it through as an env var, build.sh consumes it
+generically. keeps the template package-agnostic.
 
-## 5. Running the pipeline
+## running the pipeline
 
-- **Automatic**: push to `main` with changes under `packages/`,
-  `templates/`, `scripts/`, or `Containerfile` runs the `build` job against
-  the manifest configured as the workflow's default
-  (`.github/workflows/rpm-build.yml`'s `inputs.manifest` default — update
-  this when adding a package you want to be the main one built on push).
-- **Manual, any manifest**: GitHub Actions → "RPM manifest build and
-  publish" → Run workflow → set `manifest` to
-  `packages/<name>-<version>.yaml`.
-- **Pull requests**: only the `validate` job runs (schema + script checks,
-  no cluster credentials, no build) — safe for untrusted contributions.
+- **automatic**: push to main touching `packages/`, `templates/`,
+  `scripts/`, or `Containerfile` runs the build job against whatever
+  manifest is the workflow's default (`.github/workflows/rpm-build.yml`'s
+  `inputs.manifest` default — update this when a new package should be the
+  main one built on push)
+- **manual, any manifest**: GitHub Actions → "RPM manifest build and
+  publish" → Run workflow → set `manifest` to `packages/<name>-<version>.yaml`
+- **PRs**: only `validate` runs (schema/script check, no cluster creds, no
+  build) — safe for untrusted contributions
 
-## 6. Verifying a successful run
+## verifying a run actually worked
 
-1. Check the job completed (`gh run view <id> --json conclusion`).
-2. Confirm the dist-git repo got the commit: `cgit.devops.svc.cluster.local`
-   → `<repository>.git`, latest commit `Import <name>-<version>-<release>`.
-3. Confirm Nexus actually received every RPM, not just the SRPM — this bit
-   the pipeline once (ARCHITECTURE.md point 12) and the failure mode is
-   silent (job succeeds, artifacts are simply missing). Query Nexus
-   directly rather than trusting the workflow's own success:
+1. check the job's actually green (`gh run view <id> --json conclusion`)
+2. check dist-git got the commit: `cgit.devops.svc.cluster.local` →
+   `<repository>.git`, latest commit `Import <name>-<version>-<release>`
+3. check Nexus actually has every RPM, not just the SRPM — this bit us once
+   (ARCHITECTURE.md point 12) and it fails silently, job goes green but
+   artifacts are just missing. don't trust the workflow, query Nexus
+   directly:
 
    ```sh
    curl -s -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
@@ -135,42 +125,39 @@ template package-agnostic.
      | jq '.items[].assets[].path'
    ```
 
-   You should see the `.src.rpm` **and** every binary `.rpm` the spec
-   produces (kernel-module `kmod-*`, userspace package, `-devel`, `-debuginfo`,
-   etc. — however many subpackages the spec defines).
+   should show the `.src.rpm` AND every binary rpm the spec produces
+   (kmod-*, userspace package, -devel, -debuginfo, however many subpackages)
 
-## 7. Rebuilding the `rpm-build` builder image
+## rebuilding the rpm-build builder image
 
-The builder image (`registry.kube.dug.com/rpm-build:<tag>`) is **not**
-Flux-managed or rebuilt by CI automatically — it's a manually-triggered
-Kaniko `Job`, same pattern as cgit's image build
+the builder image (`registry.kube.dug.com/rpm-build:<tag>`) is NOT
+Flux-managed, not auto-rebuilt by CI — it's a manual Kaniko Job, same
+pattern as cgit's image build
 (`dugeo/it-k8s`'s `kubernetes/apps/devops/cgit/app/image-build-job.yaml`).
 
-Rebuild it whenever you change the `Containerfile`, `templates/`, or need to
-pick up new base-image package updates:
+rebuild whenever you touch the Containerfile, templates, or need base-image
+updates:
 
-1. Bump the tag in both the `Job`'s `--destination` and in
-   `.github/workflows/rpm-build.yml`'s two `container.image:` references
-   (`validate` and `build` jobs — keep them in sync).
-2. Push a `ConfigMap` with the build context (`Containerfile`,
-   `dugca-bundle.pem`, `templates/`) into the `devops` namespace, run a
-   Kaniko `Job` against it pushing to the new tag, confirm it reaches
-   `Pushed <image>@sha256:...` in its logs.
-3. Commit the tag bump in this repo. The next workflow run picks up the new
-   image.
+1. bump the tag in both the Job's `--destination` and
+   `.github/workflows/rpm-build.yml`'s two `container.image:` lines
+   (validate + build jobs, keep them in sync)
+2. push a ConfigMap with the build context (Containerfile, dugca-bundle.pem,
+   templates/) into `devops`, run a Kaniko Job against it pushing the new
+   tag, confirm it hits `Pushed <image>@sha256:...` in the logs
+3. commit the tag bump in this repo, next workflow run picks up the new
+   image
 
-(A one-off helper manifest for this exists in
-`/opt/data/cache/scratch/rpm-build-image-build-job.yaml` from the 0.1.1
-rebuild — reuse its shape rather than writing one from scratch.)
+(there's a one-off helper manifest from the 0.1.1 rebuild at
+`/opt/data/cache/scratch/rpm-build-image-build-job.yaml` — reuse its shape
+instead of writing one from scratch)
 
-## 8. Known hard constraints — don't fight these
+## hard constraints, don't fight these
 
-- `mock` requires `--privileged`. This only works via the ARC hook
-  extension (`dugeo/it-k8s`'s `rpm-build-hook-extension.yaml`) — do not try
-  to set it via the workflow's `container: options:`, it's silently
-  ignored under `containerMode: kubernetes`.
-- `rpkg --release` must be `rhel-<N>`, never `elN`.
-- Lustre (and likely other kernel-module packages) needs a version that
-  actually matches the target kernel's VFS ABI — a nominal kernel-version
-  match is not sufficient; verify an actual `configure`+`make` pass before
-  assuming a version/kernel pairing works.
+- mock needs `--privileged`, only works via the ARC hook extension
+  (`dugeo/it-k8s`'s `rpm-build-hook-extension.yaml`). don't try the
+  workflow's `container: options:`, it's ignored under kubernetes mode
+- `rpkg --release` must be `rhel-<N>`, never `elN`
+- Lustre (and probably other kernel-module packages) needs a version that
+  actually matches the kernel's VFS ABI — matching version numbers isn't
+  enough, verify an actual configure+make pass before assuming a
+  version/kernel pairing works

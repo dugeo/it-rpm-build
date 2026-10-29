@@ -1,183 +1,163 @@
-# RPM Build Pipeline — Architecture & Flow
+# RPM Build Pipeline — how it works
 
-This document explains how `dugeo/it-rpm-build` turns a pinned upstream SRPM
-into signed, verified RPMs published to Nexus, fully automated on GitHub
-Actions self-hosted runners. It covers the end-to-end flow, the infrastructure
-it depends on, every non-obvious fix baked into the pipeline, and where things
-live across repositories.
+Quick writeup of how `dugeo/it-rpm-build` turns a pinned SRPM into built,
+verified RPMs on Nexus. Covers the flow, why some of it is weird, and where
+stuff actually lives.
 
-Reference build: **Lustre client 2.16.1-1** against kernel
-`5.14.0-570.26.1.2.dug.el9`, built and published 2026-10-29. Everything below
-is written against that proven run.
+Reference build: Lustre client 2.16.1-1 against kernel
+`5.14.0-570.26.1.2.dug.el9`. Built and published 2026-10-29, this is what
+the doc is based on.
 
-## Related repositories
+## related repos
 
-| Repo | Role |
+| Repo | What it's for |
 |---|---|
-| [`dugeo/it-rpm-build`](.) (this repo) | Source of truth: package manifests, build templates, the GitHub Actions workflow, the `rpm-build` builder image's `Containerfile`. |
-| `dugeo/it-k8s` | Cluster GitOps (Flux). Owns the ARC (`actions-runner-controller`) `HelmRelease`s for both runner scale sets, the DUGCA trust bundle (`talos/all/70-registries.yaml`), namespaces, secrets wiring. |
-| `dugeo/it-k8s` (cgit app) | Hosts the internal cgit Git server (`cgit.devops.svc.cluster.local`) that stores one dist-git repository per package (e.g. `lustre.git`). |
-| Nexus (`nexus.kube.dug.com`) | Final artifact store. Hosted repo `rpm-hosted` receives built SRPMs/RPMs via plain `PUT`. |
-| Nexus (`nexus.dug.com`) | Legacy DUG EL build-dependency repository (`dug-el/9/dug/x86_64` and per-kernel `dug-el/kernel-<ver>/dug/x86_64`), consumed only at build time by `mock`/`dnf`, never published to. |
-| `downloads.whamcloud.com` | Upstream, immutable source of the Lustre client SRPM. |
+| `dugeo/it-rpm-build` (this one) | manifests, build templates, the workflow, the builder image Containerfile |
+| `dugeo/it-k8s` | cluster/GitOps, Flux. ARC runner HelmReleases, DUGCA trust bundle, namespaces, secrets |
+| `dugeo/it-k8s` (cgit app) | internal cgit server, one dist-git repo per package (e.g. `lustre.git`) |
+| Nexus `nexus.kube.dug.com` | final artifact store, `rpm-hosted` repo, plain PUT upload |
+| Nexus `nexus.dug.com` | legacy DUG EL build deps, used only at build time, never published to |
+| `downloads.whamcloud.com` | upstream pinned Lustre SRPM |
 
-## High-level flow
+## the flow
 
 ```
 manifest (packages/*.yaml)
   │
   ▼
-validate (schema + script check)         — runs on every PR, cheap, no cluster creds
+validate job — schema + script check, runs on every PR, no cluster creds
   │
   ▼
-build job (push to main / workflow_dispatch), on rpm-build-runners:
-  1. download SRPM, verify pinned SHA-256
-  2. ensure cgit dist-git repo exists (`newrepo` over a restricted SSH key)
-  3. `rpkg import --offline` the verified SRPM into dist-git, commit + push
-     (original SRPM retained under SOURCES/ in the dist-git repo)
-  4. copy the build template (build.sh + mock.cfg) into the dist-git checkout
-  5. `rpkg srpm` — regenerate the buildable SRPM from dist-git
-  6. `build.sh` — run `mock` (privileged) to produce binary RPMs
-  7. verify every RPM/SRPM (`rpm -K`, digest check)
+build job (push to main / manual dispatch), on rpm-build-runners:
+  1. download SRPM, check pinned SHA-256
+  2. make sure cgit dist-git repo exists (newrepo via restricted ssh key)
+  3. rpkg import --offline the SRPM into dist-git, commit + push
+     (original SRPM kept under SOURCES/ in dist-git too)
+  4. copy build template (build.sh + mock.cfg) into the dist-git checkout
+  5. rpkg srpm — regenerate buildable SRPM from dist-git
+  6. build.sh runs mock (privileged) → binary RPMs
+  7. verify everything (rpm -K, digest check)
   8. upload SRPM + every binary RPM to Nexus rpm-hosted (idempotent)
 ```
 
-Everything after step 1 runs inside the ARC "build" job container, on a
-Kubernetes-backed ephemeral runner (`containerMode: kubernetes`) with a
-10Gi Ceph-RBD scratch PVC and `--privileged` set via an ARC hook extension.
+Everything after step 1 runs in the ARC "build" job container, on a
+kubernetes-mode ephemeral runner, 10Gi ceph-rbd scratch PVC, privileged via
+an ARC hook extension.
 
-## Why it's built this way (the non-obvious decisions)
+## why it's built this way
 
-These are the decisions that are **not** visible just from reading the
-workflow file, each forced by a real failure encountered while building this
-pipeline:
+stuff that isn't obvious just reading the workflow, each one burned us at
+least once:
 
-1. **ARC runner mode: `containerMode: kubernetes`, not dind.**
-   The original docker-in-docker runner mode silently tore down
-   `/workspace` between steps. Kubernetes mode runs the job container as a
-   real sibling Pod container sharing a PVC — no bind-mount translation, no
-   teardown.
+1. **ARC runner mode is `containerMode: kubernetes`, not dind.** dind mode
+   was silently wiping `/workspace` between steps. kubernetes mode runs the
+   job as a real sibling container on a shared PVC — no bind-mount
+   translation, no teardown.
 
-2. **Image pull secrets must be attached to the `arc-runners` namespace's
-   `default` ServiceAccount, not just the runner pod template.** ARC's
-   container-hook-spawned `*-workflow` pod runs under SA `default` and does
-   **not** inherit `template.spec.imagePullSecrets` from the runner's own
-   pod spec. See `dugeo/it-k8s`:
-   `kubernetes/apps/arc-runners/default-sa-pull-secret.yaml`.
+2. **image pull secrets have to go on the `arc-runners` namespace's
+   `default` ServiceAccount**, not just the runner pod template. the
+   container-hook-spawned `*-workflow` pod runs as SA `default` and does NOT
+   inherit `imagePullSecrets` from the runner's own pod spec. see
+   `dugeo/it-k8s`: `kubernetes/apps/arc-runners/default-sa-pull-secret.yaml`.
 
-3. **`mock` needs a privileged container, which `container: options:
-   --privileged` in the workflow YAML does NOT provide** under
-   `containerMode: kubernetes` — that field is silently ignored for the
-   job-container pod. The real mechanism is an ARC **hook extension**:
-   a ConfigMap holding a PodSpec fragment, wired in via
-   `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE`. See `dugeo/it-k8s`:
-   `kubernetes/apps/arc-systems/gha-runner-scale-set/app/rpm-build-hook-extension.yaml`
-   and the corresponding `helmrelease-rpm-build.yaml` volume/env wiring.
+3. **`mock` needs `--privileged`, and the workflow's `container: options:
+   --privileged` does nothing** under kubernetes mode — silently ignored.
+   real fix is an ARC hook extension: a ConfigMap with a PodSpec fragment,
+   wired via `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE`. see `dugeo/it-k8s`:
+   `rpm-build-hook-extension.yaml` + the HelmRelease wiring.
 
-4. **`rpkg --release` is a *global* option** (must precede the subcommand,
-   e.g. `rpkg --release rhel-9 srpm ...`, not `rpkg srpm --release rhel-9`),
-   and its value must match pyrpkg's `rhel-\d.*$` regex — `el9` is rejected,
-   `rhel-9` is accepted.
+4. **`rpkg --release` is global**, goes before the subcommand
+   (`rpkg --release rhel-9 srpm ...`, not `rpkg srpm --release rhel-9`), and
+   the value has to match `rhel-\d.*$` — `el9` gets rejected, `rhel-9` works.
 
-5. **`rpkg srpm --builddir X` does not write the final `.src.rpm` into
-   `X`** — it lands in the current working directory. The workflow
-   explicitly `mv`s it into `results/srpm/` afterward.
+5. **`rpkg srpm --builddir X` doesn't actually write the SRPM into X** — it
+   lands in cwd instead. workflow `mv`s it into `results/srpm/` after.
 
-6. **EPEL inside the mock chroot must use the `mirrors.fedoraproject.org`
-   mirrorlist**, not a single hardcoded `download.fedoraproject.org`
-   baseurl — the latter was unreachable from inside the chroot even though
-   CentOS Stream mirrors resolved fine. `skip_if_unavailable=1` is also set
-   so a future EPEL hiccup doesn't block the whole chroot.
+6. **EPEL inside the mock chroot needs the fedoraproject mirrorlist**, not a
+   hardcoded `download.fedoraproject.org` baseurl — that host just wasn't
+   reachable from inside the chroot even though centos mirrors worked fine.
+   also set `skip_if_unavailable=1` so a flaky EPEL doesn't kill the whole
+   chroot.
 
-7. **`kernel-devel` does not create `/lib/modules/<kver>/{source,build}`.**
-   Those symlinks are normally created by the real `kernel` package's
-   `%post`, which never runs inside a mock chroot. `build.sh` creates them
-   explicitly (`mock --chroot -- ln -sfn ...`) between `mock --init` and
-   `mock --rebuild`, otherwise Lustre's `configure --with-linux=...` fails
-   with "Kernel source could not be found."
+7. **`kernel-devel` doesn't create `/lib/modules/<kver>/{source,build}`.**
+   those symlinks normally come from the real `kernel` package's `%post`,
+   which never runs in a mock chroot. `build.sh` makes them by hand between
+   `mock --init` and `--rebuild`, otherwise Lustre's configure dies with
+   "Kernel source could not be found."
 
-8. **`libmount-devel` must be in the chroot's base package set.** Lustre's
-   `configure` requires it but the SRPM's declared `BuildRequires` doesn't
-   list it, so `dnf builddep` alone won't pull it in.
+8. **`libmount-devel` needs to be in the chroot base packages.** Lustre's
+   configure wants it but it's not in the SRPM's declared BuildRequires, so
+   `dnf builddep` alone won't grab it.
 
-9. **Lustre version must match the kernel's actual VFS ABI generation, not
-   just its nominal upstream version.** `lustre-2.15.5`'s compat shims
+9. **Lustre version has to match the kernel's actual VFS ABI, not just the
+   nominal version number.** lustre-2.15.5's compat shims
    (`posix_acl_update_mode`, `capable_wrt_inode_uidgid`, xattr handlers,
-   `vfs_getattr`) don't match `5.14.0-570.26.1.2.dug.el9`'s real headers —
-   that vendor kernel has backported newer upstream VFS changes (idmapped
-   mounts, xattr-handler refactor) ahead of a stock 5.14. `lustre-2.16.1`
-   does, and currently builds clean. If you re-pin the kernel version,
-   re-check this.
+   `vfs_getattr`) don't line up with `5.14.0-570.26.1.2.dug.el9`'s real
+   headers — this vendor kernel backported newer VFS stuff ahead of stock
+   5.14. lustre-2.16.1 does match and builds clean. if the kernel changes,
+   recheck this.
 
-10. **Client-only Lustre builds need `--rpmbuild-opts="--without servers"`
-    passed through `mock`.** `configure` correctly auto-disables
-    ldiskfs/server support for a client SRPM, but the spec's own `%build`
-    sanity check treats "server support configured but not found" as a hard
-    error unless explicitly told `--without servers`. `mock` has no native
-    `--without` passthrough — the flag is `--rpmbuild-opts`.
+10. **client-only Lustre builds need `--rpmbuild-opts="--without servers"`
+    through mock.** configure correctly turns off ldiskfs/server support
+    for a client SRPM, but the spec's own %build sanity check treats that
+    as a hard error unless you tell it `--without servers`. mock has no
+    native `--without` flag, you pass it through `--rpmbuild-opts`.
 
-11. **The `rpm-build` builder image trusts the cluster's internal CA
-    (DUGCA).** `nexus.kube.dug.com` serves a cert issued by the cluster's
-    self-signed CA chain (`DUGCA_SVC` ← `DUGCA`), not in the stock CentOS
-    Stream 9 trust store. The same bundle `dugeo/it-k8s` already uses for
-    containerd image pulls (`talos/all/70-registries.yaml`) is baked into
-    `/etc/pki/ca-trust/source/anchors/` at image build time
-    (`dugca-bundle.pem` + `update-ca-trust extract` in the `Containerfile`).
-    TLS verification stays **on** everywhere; nothing disables cert
-    checking.
+11. **the rpm-build image trusts the cluster's internal CA (DUGCA).**
+    `nexus.kube.dug.com`'s cert is signed by the cluster's self-signed chain
+    (DUGCA_SVC ← DUGCA), not in stock CentOS Stream 9's trust store. same
+    bundle `dugeo/it-k8s` already uses for containerd pulls
+    (`talos/all/70-registries.yaml`) gets baked into
+    `/etc/pki/ca-trust/source/anchors/` at image build time. TLS
+    verification stays on, nothing's disabled.
 
-12. **Verify/upload steps must search `results/rpm`, not just the dist-git
-    checkout.** `build.sh` invokes `mock` with
-    `--resultdir=/workspace/results/rpm`, so that's where every compiled
-    binary RPM actually lands. An earlier version of the workflow only
-    searched `$workdir/package` — which silently matched zero binary RPMs
-    (no error, since `find | while read` over an empty list just does
-    nothing) — so only the two SRPMs were ever verified/published, never
-    the real `kmod-lustre-client-*`, `lustre-client-*` etc. packages. Fixed
-    by searching both `results/rpm` and `results/srpm`/`package` as
-    appropriate.
+12. **verify/upload has to search `results/rpm`, not just the dist-git
+    checkout.** build.sh runs mock with `--resultdir=/workspace/results/rpm`
+    — that's where the binary RPMs actually land. an earlier version of the
+    workflow only looked in `$workdir/package`, which silently matched
+    nothing (no error, `find | while read` over zero files just does
+    nothing) — so only the two SRPMs ever got verified/uploaded, never the
+    real `kmod-lustre-client-*` etc packages. fixed by searching both
+    `results/rpm` and `results/srpm`/`package`.
 
-13. **Nexus uploads must be idempotent.** `rpm-hosted` rejects re-uploading
-    an unchanged path with HTTP 400 (no-redeploy policy on hosted repos).
-    Re-running the pipeline against an already-published SRPM/RPM set must
-    not fail — `upload_if_absent()` checks each destination URL first and
-    skips (success) if it already returns 200.
+13. **Nexus uploads need to be idempotent.** `rpm-hosted` rejects
+    re-uploading an existing path with HTTP 400 (no-redeploy). re-running
+    the pipeline against unchanged output can't fail because of that —
+    `upload_if_absent()` checks the URL first, skips if it's already a 200.
 
-## Where state actually lives
+## where stuff actually lives
 
-- **Package manifests** (immutable source pin + build config): this repo,
-  `packages/*.yaml`.
-- **Build templates** (`build.sh`, `mock.cfg` per OS/kernel generation):
-  this repo, `templates/<template-name>/`.
-- **Dist-git** (imported spec + sources, full history per package): cgit,
-  one repo per package, e.g. `lustre.git`. Created on demand via a
-  restricted `newrepo` SSH key.
-- **Build artifacts** (final SRPM + binary RPMs): Nexus, `rpm-hosted`.
-- **Runner infrastructure** (ARC scale sets, hook extension, pull secrets,
-  the DUGCA trust bundle, PVC): `dugeo/it-k8s`, GitOps-managed by Flux.
-- **Builder image** (`registry.kube.dug.com/rpm-build:<tag>`): built from
-  this repo's `Containerfile` via a one-off Kaniko `Job` in the `devops`
-  namespace (not a Flux-managed resource — bump the tag and rebuild
-  manually when the `Containerfile`/templates change; see the guide below).
+- **manifests** (source pin + build config) — this repo, `packages/*.yaml`
+- **build templates** (`build.sh`, `mock.cfg` per OS/kernel gen) — this
+  repo, `templates/<name>/`
+- **dist-git** (imported spec + sources, full history) — cgit, one repo per
+  package, e.g. `lustre.git`, created on demand via restricted `newrepo` key
+- **build artifacts** (final SRPM + binary RPMs) — Nexus `rpm-hosted`
+- **runner infra** (ARC scale sets, hook extension, pull secrets, DUGCA
+  bundle, PVC) — `dugeo/it-k8s`, GitOps/Flux
+- **builder image** (`registry.kube.dug.com/rpm-build:<tag>`) — built from
+  this repo's Containerfile via a one-off Kaniko Job in `devops` namespace.
+  not Flux-managed, bump tag and rebuild manually when Containerfile or
+  templates change (see guide)
 
-## Required GitHub Actions secrets (configured on `dugeo/it-rpm-build`)
+## required secrets (on `dugeo/it-rpm-build`)
 
 ```
-CGIT_SSH_PRIVATE_KEY          clone/push key for dist-git repositories
-CGIT_REPO_ADMIN_PRIVATE_KEY   restricted key, only runs `newrepo` on cgit
-CGIT_KNOWN_HOSTS              pinned cgit host key (checked against a fixed
-                               fingerprint in the workflow, not trusted blindly)
-NEXUS_USERNAME / NEXUS_PASSWORD               publish credentials (rpm-hosted)
-LEGACY_NEXUS_USERNAME / LEGACY_NEXUS_PASSWORD build-dependency credentials (dug-el)
+CGIT_SSH_PRIVATE_KEY          clone/push key for dist-git
+CGIT_REPO_ADMIN_PRIVATE_KEY   restricted key, only runs newrepo on cgit
+CGIT_KNOWN_HOSTS              pinned cgit host key, checked against a fixed
+                               fingerprint in the workflow
+NEXUS_USERNAME / NEXUS_PASSWORD               publish creds (rpm-hosted)
+LEGACY_NEXUS_USERNAME / LEGACY_NEXUS_PASSWORD build dep creds (dug-el)
 ```
 
-## Runner labels (do not mix these up)
+## runner labels, don't mix these up
 
 ```yaml
 # dugeo/it-k8s   (cluster infra CI)
 runs-on: it-k8s-runners
 
-# dugeo/it-rpm-build (this repo's build workflow)
+# dugeo/it-rpm-build (this repo)
 runs-on: rpm-build-runners
 ```
-Never use `ppltk8s-arc-runner` or `k8s-runner` — deprecated/wrong labels.
+never use `ppltk8s-arc-runner` or `k8s-runner` — wrong/old labels.
