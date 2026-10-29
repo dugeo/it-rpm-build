@@ -13,8 +13,18 @@ on:
       manifest:
         description: Manifest path under packages/
         required: true
-        default: packages/lustre-2.16.1.yaml
+        default: packages/lustre-2.16.1-k570.58.1.1.yaml
         type: string
+      kernel:
+        description: Kernel version override (blank = build.kernel from the manifest)
+        required: false
+        default: ''
+        type: string
+      publish:
+        description: Push to cgit and upload to Nexus (false = build and verify only)
+        required: false
+        default: true
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -58,7 +68,8 @@ jobs:
       image: registry.kube.dug.com/rpm-build:0.1.1
       options: --privileged
     env:
-      MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.16.1.yaml' }}
+      MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.16.1-k570.58.1.1.yaml' }}
+      PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
       CGIT_REMOTE_BASE: "git@cgit.devops.svc.cluster.local:"
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
@@ -69,9 +80,15 @@ jobs:
 
       - name: Read manifest
         id: manifest
+        env:
+          KERNEL_INPUT: ${{ inputs.kernel }}
         run: |
           python3 scripts/read-manifest.py "$MANIFEST" > "$RUNNER_TEMP/manifest.env"
           cat "$RUNNER_TEMP/manifest.env" >> "$GITHUB_ENV"
+          # An explicit dispatch input wins over the manifest's build.kernel.
+          if [ -n "$KERNEL_INPUT" ]; then
+            echo "KERNEL_VERSION=$KERNEL_INPUT" >> "$GITHUB_ENV"
+          fi
 
       - name: Import, build, verify, and publish
         env:
@@ -141,7 +158,11 @@ jobs:
           git diff --check
           git add -A
           git commit -m "Import $(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}" "$workdir/input/source.src.rpm")" || true
-          git push origin HEAD
+          if [ "$PUBLISH" = "true" ]; then
+            git push origin HEAD
+          else
+            echo "publish=false: git push to cgit skipped"
+          fi
 
           # Build inputs belong to the package's dist-git repository. Copy
           # them only after import so a newly created repository receives
@@ -156,6 +177,49 @@ jobs:
           find "$workdir/package" -maxdepth 1 -type f -name '*.src.rpm' -exec mv -t "$workdir/results/srpm/" {} +
           ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
           find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
+
+          # Prove the kmod targets the requested kernel before anything is
+          # published: kernel-uname-r requirement and module vermagic must
+          # both name KERNEL_VERSION, and the version must be the SRPM's.
+          {
+            echo "# artifact verification"
+            echo "kernel=${KERNEL_VERSION:-<none>}"
+            for rpm_file in "$workdir"/results/rpm/*.rpm; do
+              case "$rpm_file" in *.src.rpm) continue ;; esac
+              echo "== $(basename "$rpm_file")"
+              sha256sum "$rpm_file"
+              rpm -qp --qf '%{NAME} %{VERSION}-%{RELEASE}\n' "$rpm_file"
+            done
+          } | tee "$workdir/results/verification.txt"
+          if [ -n "${KERNEL_VERSION:-}" ]; then
+            want_ver=$(rpm -qp --qf '%{VERSION}' "$workdir/results/srpm/"*.src.rpm)
+            kmod_rpm=$(find "$workdir/results/rpm" -name 'kmod-lustre-client-[0-9]*.rpm' | head -n1)
+            test -n "$kmod_rpm" || { echo "no kmod-lustre-client RPM was built"; exit 1; }
+            rpm -qp --qf '%{VERSION}' "$kmod_rpm" | grep -qx "$want_ver"
+            rpm -qp --requires "$kmod_rpm" | tee -a "$workdir/results/verification.txt" \
+              | grep -F "$KERNEL_VERSION" \
+              || { echo "kmod does not require kernel $KERNEL_VERSION"; exit 1; }
+            ex=$(mktemp -d)
+            (cd "$ex" && rpm2cpio "$kmod_rpm" | cpio -idm --quiet)
+            ko=$(find "$ex" -name 'lustre.ko*' -o -name 'lnet.ko*' | head -n1)
+            test -n "$ko" || { echo "no lustre/lnet module in kmod RPM"; exit 1; }
+            if command -v modinfo >/dev/null; then
+              vermagic=$(modinfo -F vermagic "$ko")
+            else
+              vermagic=$(case "$ko" in *.xz) xz -dc "$ko";; *.zst) zstd -dc "$ko";; *) cat "$ko";; esac | strings | grep -m1 '^vermagic=' | cut -d= -f2-)
+            fi
+            echo "vermagic: $vermagic" | tee -a "$workdir/results/verification.txt"
+            echo "$vermagic" | grep -F "${KERNEL_VERSION}.x86_64" >/dev/null \
+              || echo "$vermagic" | grep -F "$KERNEL_VERSION" >/dev/null \
+              || { echo "module vermagic does not match $KERNEL_VERSION"; exit 1; }
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          cp -a "$workdir/results/rpm/." "$workdir/results/srpm" "$workdir/results/verification.txt" "$workdir/results/rpm-verification.txt" "$GITHUB_WORKSPACE/artifacts/"
+
+          if [ "$PUBLISH" != "true" ]; then
+            echo "publish=false: Nexus upload skipped"
+            exit 0
+          fi
 
           # Nexus hosted repos reject re-uploads of an existing path (HTTP 400,
           # no-redeploy policy), so re-running the pipeline against an
@@ -174,8 +238,16 @@ jobs:
           }
 
           find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
-            upload_if_absent "$srpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$srpm_file")"
+            upload_if_absent "$srpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/${KERNEL_VERSION:+kernel-$KERNEL_VERSION/}$(basename "$srpm_file")"
           done
           find "$workdir/results/rpm" "$workdir/package" -type f -name "*.rpm" -not -name "*.src.rpm" -print0 | while IFS= read -r -d "" rpm_file; do
-            upload_if_absent "$rpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/$(basename "$rpm_file")"
+            upload_if_absent "$rpm_file" "$NEXUS_BASE_URL/$NEXUS_REPOSITORY/${KERNEL_VERSION:+kernel-$KERNEL_VERSION/}$(basename "$rpm_file")"
           done
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
