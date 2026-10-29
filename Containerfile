@@ -1,5 +1,12 @@
 FROM quay.io/centos/centos:stream9
 
+# Trust the cluster-internal CA chain (DUGCA_SVC issued by DUGCA) so curl/dnf
+# can verify TLS for *.kube.dug.com (e.g. nexus.kube.dug.com) without
+# disabling certificate verification. Public CA material, safe in Git --
+# see talos/all/70-registries.yaml in dugeo/it-k8s for provenance.
+COPY dugca-bundle.pem /etc/pki/ca-trust/source/anchors/dugca-bundle.pem
+RUN update-ca-trust extract
+
 RUN set -eux; \
     install_retry() { \
       for attempt in 1 2 3 4 5; do \
