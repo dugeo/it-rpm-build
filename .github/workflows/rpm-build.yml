@@ -13,7 +13,7 @@ on:
       manifest:
         description: Manifest path under packages/
         required: true
-        default: packages/lustre-2.15.5.yaml
+        default: packages/lustre-2.16.1.yaml
         type: string
   push:
     branches: [main]
@@ -58,7 +58,7 @@ jobs:
       image: registry.kube.dug.com/rpm-build:0.1.0
       options: --privileged
     env:
-      MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.15.5.yaml' }}
+      MANIFEST: ${{ inputs.manifest || 'packages/lustre-2.16.1.yaml' }}
       CGIT_REMOTE_BASE: "git@cgit.devops.svc.cluster.local:"
       NEXUS_BASE_URL: https://nexus.kube.dug.com/repository
       LEGACY_NEXUS_USERNAME: ${{ secrets.LEGACY_NEXUS_USERNAME }}
