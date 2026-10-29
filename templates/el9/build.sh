@@ -116,4 +116,4 @@ if [ -n "$kernel" ]; then
      test -e /lib/modules/${kernel}.${arch}/source/Makefile"
 fi
 
-mock "${mock_args[@]}" --no-clean --rebuild "$srpm_file"
+mock "${mock_args[@]}" --no-clean --rebuild --rpmbuild-opts="--without servers" "$srpm_file"
