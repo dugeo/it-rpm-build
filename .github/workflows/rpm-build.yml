@@ -166,8 +166,6 @@ jobs:
               # Build inputs belong to the package's dist-git repository. Check
               # them only after import so a newly created repository receives
               # the verified SRPM even when its build contract is incomplete.
-              echo "DEBUG: /workspace contents:"; ls -la /workspace
-              echo "DEBUG: /workspace/templates contents:"; ls -la /workspace/templates || true
               cp -a "/workspace/templates/$BUILD_TEMPLATE/." /workspace/package/
               test -f "$BUILD_SCRIPT"
               test -f "$MOCK_CONFIG"
