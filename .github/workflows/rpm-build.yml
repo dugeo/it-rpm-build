@@ -121,6 +121,8 @@ jobs:
             --env LEGACY_NEXUS_USERNAME --env LEGACY_NEXUS_PASSWORD \
             --env NEXUS_USERNAME --env NEXUS_PASSWORD \
             rpm-build:${GITHUB_SHA} bash -euo pipefail -c '
+              echo "DEBUG: inside main container, /opt listing:"
+              find /opt -maxdepth 3
               install -d -m 0700 /root/.ssh /workspace/results
               cp /run/rpm-ssh/id_ed25519 /root/.ssh/id_ed25519
               cp /run/rpm-ssh/repo-admin /root/.ssh/repo-admin
