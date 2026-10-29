@@ -151,7 +151,7 @@ jobs:
           test -f "$workdir/package/$MOCK_CONFIG"
           chmod +x "$workdir/package/$BUILD_SCRIPT"
           cd "$workdir/package"
-          rpkg srpm --release el9 --builddir "$workdir/results/srpm"
+          rpkg --release el9 srpm --builddir "$workdir/results/srpm"
           ./"$BUILD_SCRIPT" --arch x86_64 ${KERNEL_VERSION:+--kernel="$KERNEL_VERSION"}
           find "$workdir/package" -type f -name "*.rpm" -print -exec rpm -K {} \; | tee "$workdir/results/rpm-verification.txt"
           find "$workdir/results/srpm" "$workdir/package" -type f -name "*.src.rpm" -print0 | while IFS= read -r -d "" srpm_file; do
